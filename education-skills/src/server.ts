@@ -300,7 +300,7 @@ function docIdFromUrl(url: string): string {
   return url.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] ?? '';
 }
 
-const briefWebHtml = (html: string) => `<!DOCTYPE html>
+const briefWebHtml = (html: string, skillId: string, inputs: Record<string, string>) => `<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -313,6 +313,17 @@ const briefWebHtml = (html: string) => `<!DOCTYPE html>
   .topbar a:hover { color: #fff; }
   .topbar .title { font-size: 14px; font-weight: 600; flex: 1; }
   .topbar .date { color: #8a8aa0; font-size: 12px; flex-shrink: 0; }
+  .action-bar { background: #f0ebe3; border-bottom: 1px solid #e0d8cc; padding: 10px 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .action-bar input { flex: 1; min-width: 160px; padding: 9px 11px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; background: #fff; color: #2c2c2c; -webkit-appearance: none; }
+  .action-bar input:focus { outline: none; border-color: #8B7355; box-shadow: 0 0 0 3px rgba(139,115,85,0.12); }
+  .action-bar button { padding: 9px 16px; background: #8B7355; color: #fff; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; min-height: 40px; -webkit-tap-highlight-color: transparent; }
+  .action-bar button:hover { background: #7a6347; }
+  .action-bar button:disabled { background: #bbb; cursor: not-allowed; }
+  .action-status { width: 100%; font-size: 13px; padding: 2px 0; }
+  .action-status.ok { color: #1e8449; }
+  .action-status.err { color: #c0392b; }
+  .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; margin-right: 6px; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
   .content { max-width: 680px; margin: 0 auto; padding: 20px 16px 48px; }
   h1 { font-size: 20px; color: #1a1a2e; border-bottom: 3px solid #8B7355; padding-bottom: 8px; margin-top: 0; margin-bottom: 8px; line-height: 1.3; }
   h2 { font-size: 13px; color: #fff; background: #8B7355; padding: 6px 12px; border-radius: 5px; margin-top: 20px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -328,6 +339,7 @@ const briefWebHtml = (html: string) => `<!DOCTYPE html>
   blockquote { border: 2px solid #8B7355; border-radius: 6px; margin: 14px 0; padding: 12px 14px; background: #f9f6f1; font-weight: 600; font-size: 15px; }
   hr { border: none; border-top: 1px solid #e0d8cc; margin: 16px 0; }
   @media (min-width: 600px) {
+    .action-bar { padding: 10px 24px; }
     .content { padding: 28px 24px 60px; }
     h1 { font-size: 22px; }
   }
@@ -338,9 +350,45 @@ const briefWebHtml = (html: string) => `<!DOCTYPE html>
   <span class="title">Quick Reference</span>
   <span class="date">${new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
 </div>
+<div class="action-bar">
+  <input type="email" id="email" placeholder="Share with (optional email)" autocomplete="email">
+  <button id="btn-full" onclick="generateFullReport()">Full Report →</button>
+  <span class="action-status" id="action-status"></span>
+</div>
 <div class="content">
 ${html}
 </div>
+<script>
+const _skillId = ${JSON.stringify(skillId)};
+const _inputs  = ${JSON.stringify(inputs)};
+
+async function generateFullReport() {
+  const btn    = document.getElementById('btn-full');
+  const status = document.getElementById('action-status');
+  const email  = document.getElementById('email').value.trim();
+  btn.disabled = true;
+  status.className = 'action-status';
+  status.innerHTML = '<span class="spinner"></span>Generating full report…';
+  try {
+    const res = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ skill: _skillId, format: 'full', inputs: _inputs, recipientEmail: email || undefined }),
+    });
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Unknown error'); }
+    const data = await res.json();
+    let msg = data.reused ? '✓ Opening existing report…' : '✓ Report created — opening…';
+    if (data.shared) msg = '✓ Report created and shared — opening…';
+    status.className = 'action-status ok';
+    status.textContent = msg;
+    setTimeout(() => { window.location.href = data.url; }, 800);
+  } catch (err) {
+    status.className = 'action-status err';
+    status.textContent = '✗ ' + err.message;
+    btn.disabled = false;
+  }
+}
+</script>
 </body></html>`;
 
 function getGoogleAuth() {
@@ -462,7 +510,7 @@ IMPORTANT: This is a QUICK REFERENCE format for use on a mobile device during a 
       const bodyHtml = await marked(markdown);
       purgeOldQuickRefs();
       const id = Math.random().toString(36).slice(2) + Date.now().toString(36);
-      quickRefStore.set(id, { html: briefWebHtml(bodyHtml), created: Date.now() });
+      quickRefStore.set(id, { html: briefWebHtml(bodyHtml, skillId, inputs), created: Date.now() });
       res.json({ url: `/quick-ref/${id}`, fromExisting: !!existing });
       return;
     }
