@@ -12,8 +12,16 @@ import { RegisteredGroup } from './types.js';
 
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
-  sendPhoto?: (jid: string, filePath: string, caption?: string) => Promise<void>;
-  sendDocument?: (jid: string, filePath: string, caption?: string) => Promise<void>;
+  sendPhoto?: (
+    jid: string,
+    filePath: string,
+    caption?: string,
+  ) => Promise<void>;
+  sendDocument?: (
+    jid: string,
+    filePath: string,
+    caption?: string,
+  ) => Promise<void>;
   registeredGroups: () => Record<string, RegisteredGroup>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
   syncGroups: (force: boolean) => Promise<void>;

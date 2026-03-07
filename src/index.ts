@@ -420,11 +420,13 @@ async function startMessageLoop(): Promise<void> {
 
             // Rate-limit non-self triggers; is_from_me bypasses the limiter.
             const hasAllowedTrigger = triggerMessages.some(
-              (m) =>
-                m.is_from_me || rateLimiter.check(chatJid, m.sender),
+              (m) => m.is_from_me || rateLimiter.check(chatJid, m.sender),
             );
             if (!hasAllowedTrigger) {
-              logger.debug({ chatJid }, 'Rate limit exceeded, dropping trigger');
+              logger.debug(
+                { chatJid },
+                'Rate limit exceeded, dropping trigger',
+              );
               continue;
             }
           }
@@ -497,7 +499,10 @@ async function main(): Promise<void> {
   setInterval(() => {
     const deleted = pruneOldMessages(MESSAGE_RETENTION_DAYS);
     if (deleted > 0) {
-      logger.info({ deleted, retentionDays: MESSAGE_RETENTION_DAYS }, 'Pruned old messages');
+      logger.info(
+        { deleted, retentionDays: MESSAGE_RETENTION_DAYS },
+        'Pruned old messages',
+      );
     }
   }, 86400000);
   loadState();
@@ -590,13 +595,17 @@ async function main(): Promise<void> {
     sendPhoto: (jid, filePath, caption) => {
       const channel = findChannel(channels, jid);
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
-      if (!channel.sendPhoto) throw new Error(`Channel ${channel.name} does not support sendPhoto`);
+      if (!channel.sendPhoto)
+        throw new Error(`Channel ${channel.name} does not support sendPhoto`);
       return channel.sendPhoto(jid, filePath, caption);
     },
     sendDocument: (jid, filePath, caption) => {
       const channel = findChannel(channels, jid);
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
-      if (!channel.sendDocument) throw new Error(`Channel ${channel.name} does not support sendDocument`);
+      if (!channel.sendDocument)
+        throw new Error(
+          `Channel ${channel.name} does not support sendDocument`,
+        );
       return channel.sendDocument(jid, filePath, caption);
     },
     registeredGroups: () => registeredGroups,

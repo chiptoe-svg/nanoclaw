@@ -360,7 +360,10 @@ export class WhatsAppChannel implements Channel {
     }
     try {
       const buffer = fs.readFileSync(filePath);
-      await this.sock.sendMessage(jid, { image: buffer, caption: caption || '' });
+      await this.sock.sendMessage(jid, {
+        image: buffer,
+        caption: caption || '',
+      });
       logger.info({ jid, filePath }, 'Photo sent');
     } catch (err) {
       logger.error({ jid, err }, 'Failed to send photo');
@@ -386,8 +389,10 @@ export class WhatsAppChannel implements Channel {
         '.csv': 'text/csv',
         '.json': 'application/json',
         '.zip': 'application/zip',
-        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '.docx':
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        '.xlsx':
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       };
       const mimetype = mimeTypes[ext] || 'application/octet-stream';
       await this.sock.sendMessage(jid, {

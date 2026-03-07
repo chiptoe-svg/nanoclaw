@@ -97,7 +97,8 @@ describe('RateLimiter.trim()', () => {
     rl.check('chat', 'bob');
 
     // Expose internal map via cast for assertion
-    const internal = (rl as unknown as { windows: Map<string, number[]> }).windows;
+    const internal = (rl as unknown as { windows: Map<string, number[]> })
+      .windows;
     expect(internal.size).toBe(2);
 
     vi.advanceTimersByTime(60001);
@@ -114,7 +115,8 @@ describe('RateLimiter.trim()', () => {
     vi.advanceTimersByTime(31000); // first trigger now expired, second still valid
     rl.trim();
 
-    const internal = (rl as unknown as { windows: Map<string, number[]> }).windows;
+    const internal = (rl as unknown as { windows: Map<string, number[]> })
+      .windows;
     expect(internal.size).toBe(1);
     expect(internal.get('chat:alice')!.length).toBe(1);
   });
@@ -125,7 +127,8 @@ describe('RateLimiter.trim()', () => {
     for (let i = 0; i < 50; i++) {
       rl.check('chat', `user-${i}`);
     }
-    const internal = (rl as unknown as { windows: Map<string, number[]> }).windows;
+    const internal = (rl as unknown as { windows: Map<string, number[]> })
+      .windows;
     expect(internal.size).toBe(50);
 
     // Expire all entries
