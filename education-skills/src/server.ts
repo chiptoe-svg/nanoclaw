@@ -359,7 +359,13 @@ async function createGoogleDoc(title: string, bodyHtml: string): Promise<string>
     media: { mimeType: 'text/html', body: html },
     fields: 'id',
   });
-  return res.data.id!;
+  const docId = res.data.id!;
+  // Make the doc openable by anyone with the link (no Google sign-in required)
+  await drive.permissions.create({
+    fileId: docId,
+    requestBody: { role: 'writer', type: 'anyone' },
+  });
+  return docId;
 }
 
 async function shareGoogleDoc(docId: string, recipientEmail: string): Promise<void> {
