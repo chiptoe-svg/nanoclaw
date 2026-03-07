@@ -347,7 +347,7 @@ function getGoogleAuth() {
   const credsPath = path.join(os.homedir(), '.workspace-mcp/credentials/chiptoe1@gmail.com.json');
   const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
   const auth = new google.auth.OAuth2(creds.client_id, creds.client_secret);
-  auth.setCredentials({ refresh_token: creds.refresh_token, access_token: creds.token });
+  auth.setCredentials({ refresh_token: creds.refresh_token });
   return auth;
 }
 
