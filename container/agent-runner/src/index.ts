@@ -472,6 +472,8 @@ async function runQuery(
         'NotebookEdit',
         'mcp__nanoclaw__*',
         'mcp__workspace__*',
+        'mcp__parallel-search__*',
+        'mcp__parallel-task__*',
       ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
@@ -501,6 +503,18 @@ async function runQuery(
             OAUTHLIB_INSECURE_TRANSPORT: '1',
           },
         },
+        ...(sdkEnv.PARALLEL_API_KEY ? {
+          'parallel-search': {
+            type: 'http' as const,
+            url: 'https://search-mcp.parallel.ai/mcp',
+            headers: { Authorization: `Bearer ${sdkEnv.PARALLEL_API_KEY}` },
+          },
+          'parallel-task': {
+            type: 'http' as const,
+            url: 'https://task-mcp.parallel.ai/mcp',
+            headers: { Authorization: `Bearer ${sdkEnv.PARALLEL_API_KEY}` },
+          },
+        } : {}),
       },
       hooks: {
         PreCompact: [{ hooks: [createPreCompactHook(containerInput.assistantName)] }],
