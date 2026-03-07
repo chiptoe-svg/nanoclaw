@@ -5,7 +5,6 @@ import { google } from 'googleapis';
 import { marked } from 'marked';
 import os from 'os';
 import path from 'path';
-import puppeteer from 'puppeteer';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -58,17 +57,17 @@ const SKILLS: Skill[] = [
       { id: 'duration', label: 'Session Duration', type: 'text', required: false, placeholder: 'e.g. 45 minutes' },
       { id: 'constraints', label: 'Constraints', type: 'textarea', required: false, placeholder: 'School policies, space limitations, SEN considerations, etc.' },
     ],
-    system: `You are an expert Montessori educator and learning designer specialising in mixed-age classroom pedagogy.
+    system: `You are an expert Montessori educator and learning designer specializing in mixed-age classroom pedagogy.
 
 Design learning tasks using this evidence-based framework:
 
-CORE PRINCIPLE: Both age groups genuinely learn — the older student consolidates through the "protégé effect" (teaching requires reorganising knowledge); the younger student benefits from peer scaffolding within their zone of proximal development (Vygotsky, 1978). Optimal age gap: 2–3 years.
+CORE PRINCIPLE: Both age groups genuinely learn — the older student consolidates through the "protégé effect" (teaching requires reorganizing knowledge); the younger student benefits from peer scaffolding within their zone of proximal development (Vygotsky, 1978). Optimal age gap: 2–3 years.
 
 FIVE DESIGN IMPERATIVES:
 1. Interdependence — both groups contribute skills the other lacks; neither can complete the task alone
 2. Tutor preparation — explicit training in questioning, explaining, step-sequencing, and checking understanding
 3. Structured interaction — specific protocols prevent the older student from simply doing the work
-4. Cognitive demand for tutors — tasks must require reorganisation of knowledge, not autopilot help
+4. Cognitive demand for tutors — tasks must require reorganization of knowledge, not autopilot help
 5. Role clarity — each role is genuinely challenging for that age group
 
 EVIDENCE: Hattie (2009) effect size 0.55 for peer tutoring; Lillard & Else-Quest (2006) superior social skills and community; Topping (2005) success requires tutor training, cognitive work, defined roles.
@@ -138,15 +137,15 @@ ${i.timeline ? `\n**Implementation Timeline:** ${i.timeline}` : ''}`,
     description:
       'Design complete Montessori three-period lessons: Period 1 (naming), Period 2 (recognition), Period 3 (recall). Includes ready-to-use teacher scripts and mastery indicators.',
     fields: [
-      { id: 'concept', label: 'Concept to Teach', type: 'text', required: true, placeholder: 'e.g. isosceles triangle, rough vs smooth, the colour cerulean' },
-      { id: 'materials', label: 'Concrete Materials Available', type: 'text', required: true, placeholder: 'e.g. geometric inset cards, sandpaper tablets, colour box' },
+      { id: 'concept', label: 'Concept to Teach', type: 'text', required: true, placeholder: 'e.g. isosceles triangle, rough vs smooth, the color cerulean' },
+      { id: 'materials', label: 'Concrete Materials Available', type: 'text', required: true, placeholder: 'e.g. geometric inset cards, sandpaper tablets, color box' },
       { id: 'student_level', label: 'Student Level / Age', type: 'text', required: false, placeholder: 'e.g. 4-year-olds, early primary' },
       { id: 'subject', label: 'Subject Area', type: 'text', required: false, placeholder: 'e.g. maths, sensorial, language, practical life' },
       { id: 'group_size', label: 'Group Size', type: 'text', required: false, placeholder: 'e.g. individual, pairs, small group of 3' },
       { id: 'prior_knowledge', label: 'Prior Knowledge', type: 'textarea', required: false, placeholder: 'What do students already know or have mastered?' },
       { id: 'language', label: 'Language Considerations', type: 'text', required: false, placeholder: 'e.g. EAL learners, bilingual classroom, key vocabulary concerns' },
     ],
-    system: `You are an expert Montessori teacher trainer specialising in the three-period lesson.
+    system: `You are an expert Montessori teacher trainer specializing in the three-period lesson.
 
 Design complete three-period lessons following this methodology exactly:
 
@@ -205,7 +204,7 @@ ${i.language ? `\n**Language Considerations:** ${i.language}` : ''}`,
       { id: 'time', label: 'Available Time Block', type: 'text', required: true, placeholder: 'e.g. 90 minutes, 2 hours' },
       { id: 'age_group', label: 'Age Group / Grade', type: 'text', required: true, placeholder: 'e.g. 6–9 year olds, Year 3–4' },
       { id: 'num_students', label: 'Number of Students', type: 'text', required: false, placeholder: 'e.g. 24 students' },
-      { id: 'challenges', label: 'Current Challenges', type: 'textarea', required: false, placeholder: 'e.g. students struggle to settle, choice paralysis, constant seeking of adult approval, off-task behaviour' },
+      { id: 'challenges', label: 'Current Challenges', type: 'textarea', required: false, placeholder: 'e.g. students struggle to settle, choice paralysis, constant seeking of adult approval, off-task behavior' },
       { id: 'context', label: 'Classroom Context', type: 'textarea', required: false, placeholder: 'Current setup, routines, materials available, curriculum constraints, prior experience with self-directed learning.' },
     ],
     system: `You are an expert in Montessori pedagogy and self-directed learning environments.
@@ -239,7 +238,7 @@ Output:
 4. Choice management system and materials rotation
 5. Closing routine with structured reflection
 6. Phased introduction plan (weeks 1–5 for new implementations)
-7. Responses to common teacher concerns (behaviour, accountability, parental questions, curriculum coverage)
+7. Responses to common teacher concerns (behavior, accountability, parental questions, curriculum coverage)
 8. Assessment and documentation framework
 
 Use well-structured markdown with clear headings, tables, and practical ready-to-use scripts.`,
@@ -298,23 +297,6 @@ function generateDescription(skill: Skill, inputs: Record<string, string>): stri
   return vals.slice(0, 2).map(v => v.replace(/\n.*/s, '').slice(0, 70)).join(' — ');
 }
 
-const pdfHtml = (html: string) => `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><style>
-  body { font-family: Georgia, serif; max-width: 740px; margin: 0 auto; padding: 36px 48px; color: #1e1e1e; line-height: 1.75; }
-  h1 { font-size: 24px; color: #1a1a2e; border-bottom: 2px solid #8B7355; padding-bottom: 10px; margin-top: 0; }
-  h2 { font-size: 18px; color: #1a1a2e; margin-top: 32px; border-left: 4px solid #8B7355; padding-left: 10px; }
-  h3 { font-size: 15px; color: #333; margin-top: 20px; }
-  p { margin: 10px 0; }
-  ul, ol { margin: 10px 0; padding-left: 22px; }
-  li { margin: 5px 0; }
-  strong { color: #111; }
-  table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 13px; }
-  th { background: #8B7355; color: #fff; padding: 9px 13px; text-align: left; }
-  td { padding: 8px 13px; border-bottom: 1px solid #e0d8cc; vertical-align: top; }
-  tr:nth-child(even) td { background: #f9f6f1; }
-  blockquote { border-left: 3px solid #8B7355; margin: 14px 0; padding: 6px 14px; background: #f9f6f1; color: #555; font-style: italic; }
-  hr { border: none; border-top: 1px solid #e0d8cc; margin: 20px 0; }
-</style></head><body>${html}</body></html>`;
 
 function docIdFromUrl(url: string): string {
   return url.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] ?? '';
@@ -465,10 +447,23 @@ async function getOrCreateMontessoriFolder(): Promise<string> {
   return montessoriFolderId;
 }
 
-async function createGoogleDoc(title: string, bodyHtml: string): Promise<string> {
+async function createGoogleDoc(title: string, bodyHtml: string, skillName: string): Promise<string> {
   const drive = google.drive({ version: 'v3', auth: getGoogleAuth() });
   const folderId = await getOrCreateMontessoriFolder();
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title></head><body>${bodyHtml}</body></html>`;
+  const date = new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' });
+  const styledBody = bodyHtml
+    .replace(/<th>/g, '<th style="background-color:#8B7355;color:#ffffff;padding:8px 12px;font-weight:bold;">');
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title></head><body>
+<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:20pt;width:100%;">
+  <tr><td style="background-color:#1a1a2e;padding:16pt 20pt;">
+    <span style="color:#ffffff;font-size:18pt;font-weight:bold;font-family:Georgia,serif;">${skillName}</span>
+  </td></tr>
+  <tr><td style="background-color:#8B7355;padding:7pt 20pt;">
+    <span style="color:#ffffff;font-size:10pt;font-family:Arial,sans-serif;">Montessori Skill Designer &nbsp;·&nbsp; ${date}</span>
+  </td></tr>
+</table>
+${styledBody}
+</body></html>`;
   const res = await drive.files.create({
     requestBody: { name: title, mimeType: 'application/vnd.google-apps.document', parents: [folderId] },
     media: { mimeType: 'text/html', body: html },
@@ -524,16 +519,15 @@ app.get('/api/pdf/:id', async (req, res) => {
   const record = loadReports().find(r => r.id === req.params.id);
   if (!record) { res.status(404).json({ error: 'Report not found' }); return; }
   try {
-    const content = record.markdown ?? await fetchDocText(docIdFromUrl(record.docUrl));
-    const bodyHtml = await marked(content);
-    const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-    const page = await browser.newPage();
-    await page.setContent(pdfHtml(bodyHtml), { waitUntil: 'networkidle0' });
-    const pdf = await page.pdf({ format: 'A4', margin: { top: '14mm', bottom: '14mm', left: '12mm', right: '12mm' } });
-    await browser.close();
+    const docId = docIdFromUrl(record.docUrl);
+    const drive = google.drive({ version: 'v3', auth: getGoogleAuth() });
+    const response = await drive.files.export(
+      { fileId: docId, mimeType: 'application/pdf' },
+      { responseType: 'arraybuffer' },
+    );
     res.set('Content-Type', 'application/pdf');
     res.set('Content-Disposition', `attachment; filename="${record.skillId}-report.pdf"`);
-    res.send(pdf);
+    res.send(Buffer.from(response.data as ArrayBuffer));
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
@@ -634,7 +628,7 @@ app.post('/api/generate', async (req, res) => {
     const bodyHtml = await marked(markdown);
 
     const title = `${skill.name} — ${new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}`;
-    const docId = await createGoogleDoc(title, bodyHtml); // throws on failure — no save below if this fails
+    const docId = await createGoogleDoc(title, bodyHtml, skill.name); // throws on failure — no save below if this fails
     const docUrl = `https://docs.google.com/document/d/${docId}/edit`;
     if (email) await shareGoogleDoc(docId, email);
 
