@@ -477,21 +477,25 @@ IMPORTANT: This is a QUICK REFERENCE format for use on a mobile device during a 
     const bodyHtml = await marked((msg.content[0] as { type: 'text'; text: string }).text);
 
     const title = `${skill.name} — ${new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}`;
-    const docId = await createGoogleDoc(title, bodyHtml);
+    const docId = await createGoogleDoc(title, bodyHtml); // throws on failure — no save below if this fails
     const docUrl = `https://docs.google.com/document/d/${docId}/edit`;
     if (email) await shareGoogleDoc(docId, email);
 
-    const reports = loadReports();
-    reports.push({
-      id: Math.random().toString(36).slice(2) + Date.now().toString(36),
-      skillId,
-      title,
-      description: generateDescription(skill, inputs),
-      inputs,
-      docUrl,
-      createdAt: new Date().toISOString(),
-    });
-    saveReports(reports);
+    try {
+      const reports = loadReports();
+      reports.push({
+        id: Math.random().toString(36).slice(2) + Date.now().toString(36),
+        skillId,
+        title,
+        description: generateDescription(skill, inputs),
+        inputs,
+        docUrl,
+        createdAt: new Date().toISOString(),
+      });
+      saveReports(reports);
+    } catch (saveErr) {
+      console.error('Failed to save report record (doc was created):', saveErr);
+    }
 
     res.json({ url: docUrl, reused: false, shared: !!email });
   } catch (err: unknown) {
