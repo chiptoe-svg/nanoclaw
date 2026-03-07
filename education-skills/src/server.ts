@@ -426,6 +426,15 @@ async function generateFullReport() {
 </script>
 </body></html>`;
 
+const BRIEF_SUFFIX = `
+
+IMPORTANT: This is a QUICK REFERENCE format for use on a mobile device during a lesson.
+- Total length: 400–600 words maximum
+- No paragraphs — use numbered steps and short bullet points only
+- Bold every key action or term
+- Structure strictly: Overview (2–3 lines) → Materials checklist → Step-by-step sequence → One quick-reference box at the end
+- Omit all evidence citations, theoretical background, and extended explanations`;
+
 function getGoogleAuth() {
   const credsPath = path.join(os.homedir(), '.workspace-mcp/credentials/chiptoe1@gmail.com.json');
   const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
@@ -434,11 +443,34 @@ function getGoogleAuth() {
   return auth;
 }
 
+let montessoriFolderId: string | null = null;
+
+async function getOrCreateMontessoriFolder(): Promise<string> {
+  if (montessoriFolderId) return montessoriFolderId;
+  const drive = google.drive({ version: 'v3', auth: getGoogleAuth() });
+  const search = await drive.files.list({
+    q: "name='Montessori Lessons' and mimeType='application/vnd.google-apps.folder' and trashed=false",
+    fields: 'files(id)',
+    spaces: 'drive',
+  });
+  if (search.data.files && search.data.files.length > 0) {
+    montessoriFolderId = search.data.files[0].id!;
+    return montessoriFolderId;
+  }
+  const folder = await drive.files.create({
+    requestBody: { name: 'Montessori Lessons', mimeType: 'application/vnd.google-apps.folder' },
+    fields: 'id',
+  });
+  montessoriFolderId = folder.data.id!;
+  return montessoriFolderId;
+}
+
 async function createGoogleDoc(title: string, bodyHtml: string): Promise<string> {
   const drive = google.drive({ version: 'v3', auth: getGoogleAuth() });
+  const folderId = await getOrCreateMontessoriFolder();
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title></head><body>${bodyHtml}</body></html>`;
   const res = await drive.files.create({
-    requestBody: { name: title, mimeType: 'application/vnd.google-apps.document' },
+    requestBody: { name: title, mimeType: 'application/vnd.google-apps.document', parents: [folderId] },
     media: { mimeType: 'text/html', body: html },
     fields: 'id',
   });
@@ -506,6 +538,31 @@ app.get('/api/pdf/:id', async (req, res) => {
   }
 });
 
+app.get('/api/overview/:id', async (req, res) => {
+  const record = loadReports().find(r => r.id === req.params.id);
+  if (!record) { res.status(404).send('Report not found'); return; }
+  const skill = SKILLS.find(s => s.id === record.skillId);
+  if (!skill) { res.status(404).send('Skill not found'); return; }
+  const apiKey = readApiKey();
+  if (!apiKey) { res.status(500).send('ANTHROPIC_API_KEY not set'); return; }
+  try {
+    const docText = await fetchDocText(docIdFromUrl(record.docUrl));
+    const client = new Anthropic({ apiKey });
+    const msg = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      system: skill.system + BRIEF_SUFFIX,
+      messages: [{ role: 'user', content: `Condense this full report into a quick reference:\n\n${docText}` }],
+    });
+    const markdown = (msg.content[0] as { type: 'text'; text: string }).text;
+    const bodyHtml = await marked(markdown);
+    res.set('Content-Type', 'text/html');
+    res.send(briefWebHtml(bodyHtml, record.skillId, record.inputs));
+  } catch (err: unknown) {
+    res.status(500).send('Error: ' + (err instanceof Error ? err.message : String(err)));
+  }
+});
+
 app.delete('/api/reports/:id', (req, res) => {
   saveReports(loadReports().filter(r => r.id !== req.params.id));
   res.json({ ok: true });
@@ -520,15 +577,6 @@ app.post('/api/generate', async (req, res) => {
   if (!apiKey) { res.status(500).json({ error: 'ANTHROPIC_API_KEY not set in .env' }); return; }
 
   const format = (req.body.format === 'brief') ? 'brief' : 'full';
-
-  const briefSuffix = `
-
-IMPORTANT: This is a QUICK REFERENCE format for use on a mobile device during a lesson.
-- Total length: 400–600 words maximum
-- No paragraphs — use numbered steps and short bullet points only
-- Bold every key action or term
-- Structure strictly: Overview (2–3 lines) → Materials checklist → Step-by-step sequence → One quick-reference box at the end
-- Omit all evidence citations, theoretical background, and extended explanations`;
 
   const email = recipientEmail?.trim() || undefined;
 
@@ -546,7 +594,7 @@ IMPORTANT: This is a QUICK REFERENCE format for use on a mobile device during a 
         const msg = await client.messages.create({
           model: 'claude-sonnet-4-6',
           max_tokens: 1024,
-          system: skill.system + briefSuffix,
+          system: skill.system + BRIEF_SUFFIX,
           messages: [{ role: 'user', content: `Condense this full report into a quick reference:\n\n${docText}` }],
         });
         markdown = (msg.content[0] as { type: 'text'; text: string }).text;
@@ -554,7 +602,7 @@ IMPORTANT: This is a QUICK REFERENCE format for use on a mobile device during a 
         const msg = await client.messages.create({
           model: 'claude-sonnet-4-6',
           max_tokens: 1024,
-          system: skill.system + briefSuffix,
+          system: skill.system + BRIEF_SUFFIX,
           messages: [{ role: 'user', content: skill.userPrompt(inputs) }],
         });
         markdown = (msg.content[0] as { type: 'text'; text: string }).text;
