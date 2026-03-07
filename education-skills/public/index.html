@@ -42,15 +42,19 @@
   .field textarea { resize: vertical; min-height: 88px; line-height: 1.55; }
   .field select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23888' d='M6 8L0 0h12z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 13px center; padding-right: 34px; }
 
+  .btn-row { display: flex; gap: 10px; margin-top: 10px; }
   .btn {
-    width: 100%; padding: 15px; background: #8B7355; color: #fff; border: none;
-    border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 10px;
-    transition: background 0.15s; min-height: 50px; -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
+    flex: 1; padding: 14px 10px; border: none; border-radius: 8px; font-size: 15px;
+    font-weight: 600; cursor: pointer; min-height: 50px; transition: background 0.15s;
+    -webkit-tap-highlight-color: transparent; touch-action: manipulation; line-height: 1.3;
   }
-  .btn:hover { background: #7a6347; }
-  .btn:active { background: #6b5540; }
-  .btn:disabled { background: #c5b89a; cursor: not-allowed; }
+  .btn-full { background: #8B7355; color: #fff; }
+  .btn-full:hover { background: #7a6347; }
+  .btn-full:active { background: #6b5540; }
+  .btn-brief { background: #f0e8d8; color: #6b4f1e; }
+  .btn-brief:hover { background: #e5dace; }
+  .btn-brief:active { background: #d9cdbf; }
+  .btn:disabled { background: #ddd !important; color: #aaa !important; cursor: not-allowed; }
 
   .status { margin-top: 16px; padding: 14px 16px; border-radius: 8px; font-size: 14px; display: none; line-height: 1.55; }
   .status.loading { background: #eef4fb; color: #2471a3; display: block; }
@@ -184,22 +188,26 @@ async function init() {
       <p class="panel-desc">${skill.description}</p>
       <form id="form-${skill.id}" onsubmit="handleSubmit(event,'${skill.id}')">
         ${fieldsHtml}
-        <button type="submit" class="btn" id="btn-${skill.id}">Generate PDF Report →</button>
+        <div class="btn-row">
+          <button type="button" class="btn btn-full"  id="btn-full-${skill.id}"  onclick="handleSubmit(event,'${skill.id}','full')">📄 Full Report</button>
+          <button type="button" class="btn btn-brief" id="btn-brief-${skill.id}" onclick="handleSubmit(event,'${skill.id}','brief')">📱 Quick Reference</button>
+        </div>
         <div class="status" id="status-${skill.id}"></div>
       </form>`;
     panelsEl.appendChild(panel);
   });
 
   document.getElementById('modal-proceed').onclick = () => {
+    const ps = pendingSubmit;
     closeModal();
-    if (pendingSubmit) runGenerate(pendingSubmit.skillId, pendingSubmit.inputs);
+    if (ps) runGenerate(ps.skillId, ps.inputs, ps.format);
   };
   document.getElementById('modal-cancel').onclick = closeModal;
   document.getElementById('modal').onclick = (e) => { if (e.target === document.getElementById('modal')) closeModal(); };
 }
 
-function handleSubmit(e, skillId) {
-  e.preventDefault();
+function handleSubmit(e, skillId, format) {
+  e.preventDefault ? e.preventDefault() : null;
   const skill  = skills.find(s => s.id === skillId);
   const form   = document.getElementById('form-' + skillId);
   const inputs = {};
@@ -210,24 +218,22 @@ function handleSubmit(e, skillId) {
   const missing  = required.filter(f => !inputs[f.id]);
 
   if (missing.length === 0) {
-    runGenerate(skillId, inputs);
+    runGenerate(skillId, inputs, format);
     return;
   }
 
-  // Fill defaults for missing required fields
+  // Fill defaults for missing required fields and update DOM
   const applied = [];
   missing.forEach(f => {
     const defVal = defs[f.id];
     if (defVal) {
       inputs[f.id] = defVal;
-      // Also update the DOM so the user sees what was filled
       const el = document.getElementById(skillId + '_' + f.id);
       if (el) el.value = defVal;
       applied.push({ label: f.label, value: defVal });
     }
   });
 
-  // Show modal
   const defaultsEl = document.getElementById('modal-defaults');
   defaultsEl.innerHTML = applied.map(a => `
     <div class="default-item">
@@ -235,7 +241,7 @@ function handleSubmit(e, skillId) {
       <div class="default-value">${a.value.replace(/\n/g, '<br>')}</div>
     </div>`).join('');
 
-  pendingSubmit = { skillId, inputs };
+  pendingSubmit = { skillId, inputs, format };
   document.getElementById('modal').classList.add('open');
   document.body.style.overflow = 'hidden';
 }
@@ -246,20 +252,21 @@ function closeModal() {
   pendingSubmit = null;
 }
 
-async function runGenerate(skillId, inputs) {
-  const btn    = document.getElementById('btn-' + skillId);
-  const status = document.getElementById('status-' + skillId);
+async function runGenerate(skillId, inputs, format) {
+  const btnFull  = document.getElementById('btn-full-'  + skillId);
+  const btnBrief = document.getElementById('btn-brief-' + skillId);
+  const status   = document.getElementById('status-' + skillId);
+  const isBrief  = format === 'brief';
 
-  btn.disabled = true;
-  btn.textContent = 'Generating…';
+  btnFull.disabled = btnBrief.disabled = true;
   status.className = 'status loading';
-  status.innerHTML = '<span class="spinner"></span>Calling Claude and building your PDF — usually 20–40 seconds…';
+  status.innerHTML = `<span class="spinner"></span>${isBrief ? 'Building quick reference — usually 10–20 seconds…' : 'Calling Claude and building your PDF — usually 20–40 seconds…'}`;
 
   try {
     const res = await fetch('/api/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ skill: skillId, inputs }),
+      body: JSON.stringify({ skill: skillId, format, inputs }),
     });
 
     if (!res.ok) {
@@ -271,18 +278,17 @@ async function runGenerate(skillId, inputs) {
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
-    a.download = skillId + '-report.pdf';
+    a.download = `${skillId}-${isBrief ? 'quick-ref' : 'report'}.pdf`;
     a.click();
     URL.revokeObjectURL(url);
 
     status.className = 'status ok';
-    status.textContent = '✓ Your PDF report has been downloaded.';
+    status.textContent = `✓ Your ${isBrief ? 'quick reference' : 'full report'} has been downloaded.`;
   } catch (err) {
     status.className = 'status error';
     status.textContent = '✗ ' + err.message;
   } finally {
-    btn.disabled = false;
-    btn.textContent = 'Generate PDF Report →';
+    btnFull.disabled = btnBrief.disabled = false;
   }
 }
 

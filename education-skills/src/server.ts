@@ -251,6 +251,28 @@ ${i.context ? `\n**Classroom Context:**\n${i.context}` : ''}`,
   },
 ];
 
+const briefPdfHtml = (html: string) => `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; max-width: 680px; margin: 0 auto; padding: 28px 36px; color: #1e1e1e; line-height: 1.6; font-size: 15px; }
+  h1 { font-size: 20px; color: #1a1a2e; border-bottom: 3px solid #8B7355; padding-bottom: 8px; margin-top: 0; margin-bottom: 6px; }
+  h2 { font-size: 15px; color: #fff; background: #8B7355; padding: 6px 12px; border-radius: 4px; margin-top: 20px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+  h3 { font-size: 14px; color: #1a1a2e; margin-top: 14px; margin-bottom: 6px; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 6px 0; padding-left: 20px; }
+  li { margin: 5px 0; line-height: 1.5; }
+  strong { color: #1a1a2e; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+  th { background: #8B7355; color: #fff; padding: 7px 11px; text-align: left; }
+  td { padding: 7px 11px; border-bottom: 1px solid #e0d8cc; }
+  tr:nth-child(even) td { background: #f9f6f1; }
+  blockquote { border: 2px solid #8B7355; border-radius: 6px; margin: 14px 0; padding: 10px 14px; background: #f9f6f1; font-weight: 600; }
+  .meta { color: #999; font-size: 11px; margin-bottom: 16px; }
+  hr { border: none; border-top: 1px solid #e0d8cc; margin: 14px 0; }
+</style></head><body>
+<div class="meta">Quick Reference · Montessori Skill Designer · ${new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+${html}
+</body></html>`;
+
 const pdfHtml = (html: string) => `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><style>
   body { font-family: Georgia, serif; max-width: 740px; margin: 0 auto; padding: 36px 48px; color: #1e1e1e; line-height: 1.75; }
@@ -285,30 +307,41 @@ app.get('/api/skills', (_req, res) => {
 });
 
 app.post('/api/generate', async (req, res) => {
-  const { skill: skillId, inputs } = req.body as { skill: string; inputs: Record<string, string> };
+  const { skill: skillId, inputs } = req.body as { skill: string; format: string; inputs: Record<string, string> };
   const skill = SKILLS.find((s) => s.id === skillId);
   if (!skill) { res.status(400).json({ error: 'Unknown skill' }); return; }
 
   const apiKey = readApiKey();
   if (!apiKey) { res.status(500).json({ error: 'ANTHROPIC_API_KEY not set in .env' }); return; }
 
+  const format = (req.body.format === 'brief') ? 'brief' : 'full';
+
+  const briefSuffix = `
+
+IMPORTANT: This is a QUICK REFERENCE format for use on a mobile device during a lesson.
+- Total length: 400–600 words maximum
+- No paragraphs — use numbered steps and short bullet points only
+- Bold every key action or term
+- Structure strictly: Overview (2–3 lines) → Materials checklist → Step-by-step sequence → One quick-reference box at the end
+- Omit all evidence citations, theoretical background, and extended explanations`;
+
   try {
     const client = new Anthropic({ apiKey });
     const message = await client.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
-      system: skill.system,
+      max_tokens: format === 'brief' ? 1024 : 4096,
+      system: skill.system + (format === 'brief' ? briefSuffix : ''),
       messages: [{ role: 'user', content: skill.userPrompt(inputs) }],
     });
 
     const markdown = (message.content[0] as { type: 'text'; text: string }).text;
     const bodyHtml = await marked(markdown);
-    const fullHtml = pdfHtml(bodyHtml);
+    const fullHtml = format === 'brief' ? briefPdfHtml(bodyHtml) : pdfHtml(bodyHtml);
 
     const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
     const page = await browser.newPage();
     await page.setContent(fullHtml, { waitUntil: 'networkidle0' });
-    const pdf = await page.pdf({ format: 'A4', margin: { top: '18mm', bottom: '18mm', left: '14mm', right: '14mm' } });
+    const pdf = await page.pdf({ format: 'A4', margin: { top: '14mm', bottom: '14mm', left: '12mm', right: '12mm' } });
     await browser.close();
 
     res.set('Content-Type', 'application/pdf');
