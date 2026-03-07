@@ -12,12 +12,12 @@ import { RegisteredGroup } from './types.js';
 
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
-  sendPhoto?: (
+  sendPhoto: (
     jid: string,
     filePath: string,
     caption?: string,
   ) => Promise<void>;
-  sendDocument?: (
+  sendDocument: (
     jid: string,
     filePath: string,
     caption?: string,
@@ -124,39 +124,25 @@ export function startIpcWatcher(deps: IpcDeps): void {
                       'IPC path traversal attempt blocked',
                     );
                   } else if (data.type === 'photo') {
-                    if (deps.sendPhoto) {
-                      await deps.sendPhoto(
-                        data.chatJid,
-                        resolvedFile,
-                        data.caption,
-                      );
-                      logger.info(
-                        { chatJid: data.chatJid, sourceGroup },
-                        'IPC photo sent',
-                      );
-                    } else {
-                      logger.warn(
-                        { chatJid: data.chatJid },
-                        'sendPhoto not available for this channel',
-                      );
-                    }
+                    await deps.sendPhoto(
+                      data.chatJid,
+                      resolvedFile,
+                      data.caption,
+                    );
+                    logger.info(
+                      { chatJid: data.chatJid, sourceGroup },
+                      'IPC photo sent',
+                    );
                   } else {
-                    if (deps.sendDocument) {
-                      await deps.sendDocument(
-                        data.chatJid,
-                        resolvedFile,
-                        data.caption,
-                      );
-                      logger.info(
-                        { chatJid: data.chatJid, sourceGroup },
-                        'IPC document sent',
-                      );
-                    } else {
-                      logger.warn(
-                        { chatJid: data.chatJid },
-                        'sendDocument not available for this channel',
-                      );
-                    }
+                    await deps.sendDocument(
+                      data.chatJid,
+                      resolvedFile,
+                      data.caption,
+                    );
+                    logger.info(
+                      { chatJid: data.chatJid, sourceGroup },
+                      'IPC document sent',
+                    );
                   }
                 } else {
                   logger.warn(

@@ -392,6 +392,8 @@ async function startMessageLoop(): Promise<void> {
           }
         }
 
+        const allowlistCfg = loadSenderAllowlist();
+
         for (const [chatJid, groupMessages] of messagesByGroup) {
           const group = registeredGroups[chatJid];
           if (!group) continue;
@@ -409,7 +411,6 @@ async function startMessageLoop(): Promise<void> {
           // Non-trigger messages accumulate in DB and get pulled as
           // context when a trigger eventually arrives.
           if (needsTrigger) {
-            const allowlistCfg = loadSenderAllowlist();
             const triggerMessages = groupMessages.filter(
               (m) =>
                 TRIGGER_PATTERN.test(m.content.trim()) &&
