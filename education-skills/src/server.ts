@@ -524,7 +524,8 @@ app.get('/api/pdf/:id', async (req, res) => {
   const record = loadReports().find(r => r.id === req.params.id);
   if (!record) { res.status(404).json({ error: 'Report not found' }); return; }
   try {
-    const bodyHtml = await marked(record.markdown);
+    const content = record.markdown ?? await fetchDocText(docIdFromUrl(record.docUrl));
+    const bodyHtml = await marked(content);
     const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
     const page = await browser.newPage();
     await page.setContent(pdfHtml(bodyHtml), { waitUntil: 'networkidle0' });
