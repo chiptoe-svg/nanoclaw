@@ -193,7 +193,7 @@ async function loadHistory() {
           <div class="history-date">${new Date(r.createdAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
         </div>
         <div class="history-actions">
-          <a href="/api/overview/${r.id}" class="history-btn history-btn-open" style="background:#e8f0e8;color:#2e5e2e">Overview</a>
+          <button class="history-btn history-btn-open" style="background:#e8f0e8;color:#2e5e2e" onclick="openOverview(this,'${r.id}')">Overview</button>
           <a href="${r.docUrl}" target="_blank" class="history-btn history-btn-open">Doc</a>
           <a href="/api/pdf/${r.id}" class="history-btn history-btn-open" style="background:#f0e8d8;color:#6b4f1e">PDF</a>
           <button class="history-btn history-btn-delete" onclick="deleteReport('${r.id}')">Delete</button>
@@ -202,6 +202,12 @@ async function loadHistory() {
   } catch {
     panel.innerHTML = '<p class="history-empty">Could not load history.</p>';
   }
+}
+
+function openOverview(btn, id) {
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Building…';
+  window.location.href = '/api/overview/' + id;
 }
 
 async function deleteReport(id) {
