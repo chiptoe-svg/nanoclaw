@@ -5,6 +5,7 @@ import { google } from 'googleapis';
 import { marked } from 'marked';
 import os from 'os';
 import path from 'path';
+import puppeteer from 'puppeteer';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -269,6 +270,7 @@ interface ReportRecord {
   description: string;
   inputs: Record<string, string>;
   docUrl: string;
+  markdown: string;
   createdAt: string;
 }
 
@@ -296,6 +298,24 @@ function generateDescription(skill: Skill, inputs: Record<string, string>): stri
   return vals.slice(0, 2).map(v => v.replace(/\n.*/s, '').slice(0, 70)).join(' — ');
 }
 
+const pdfHtml = (html: string) => `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><style>
+  body { font-family: Georgia, serif; max-width: 740px; margin: 0 auto; padding: 36px 48px; color: #1e1e1e; line-height: 1.75; }
+  h1 { font-size: 24px; color: #1a1a2e; border-bottom: 2px solid #8B7355; padding-bottom: 10px; margin-top: 0; }
+  h2 { font-size: 18px; color: #1a1a2e; margin-top: 32px; border-left: 4px solid #8B7355; padding-left: 10px; }
+  h3 { font-size: 15px; color: #333; margin-top: 20px; }
+  p { margin: 10px 0; }
+  ul, ol { margin: 10px 0; padding-left: 22px; }
+  li { margin: 5px 0; }
+  strong { color: #111; }
+  table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 13px; }
+  th { background: #8B7355; color: #fff; padding: 9px 13px; text-align: left; }
+  td { padding: 8px 13px; border-bottom: 1px solid #e0d8cc; vertical-align: top; }
+  tr:nth-child(even) td { background: #f9f6f1; }
+  blockquote { border-left: 3px solid #8B7355; margin: 14px 0; padding: 6px 14px; background: #f9f6f1; color: #555; font-style: italic; }
+  hr { border: none; border-top: 1px solid #e0d8cc; margin: 20px 0; }
+</style></head><body>${html}</body></html>`;
+
 function docIdFromUrl(url: string): string {
   return url.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] ?? '';
 }
@@ -313,18 +333,25 @@ const briefWebHtml = (html: string, skillId: string, inputs: Record<string, stri
   .topbar a:hover { color: #fff; }
   .topbar .title { font-size: 14px; font-weight: 600; flex: 1; }
   .topbar .date { color: #8a8aa0; font-size: 12px; flex-shrink: 0; }
-  .action-bar { background: #f0ebe3; border-bottom: 1px solid #e0d8cc; padding: 10px 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .action-bar input { flex: 1; min-width: 160px; padding: 9px 11px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; background: #fff; color: #2c2c2c; -webkit-appearance: none; }
-  .action-bar input:focus { outline: none; border-color: #8B7355; box-shadow: 0 0 0 3px rgba(139,115,85,0.12); }
-  .action-bar button { padding: 9px 16px; background: #8B7355; color: #fff; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; min-height: 40px; -webkit-tap-highlight-color: transparent; }
-  .action-bar button:hover { background: #7a6347; }
-  .action-bar button:disabled { background: #bbb; cursor: not-allowed; }
-  .action-status { width: 100%; font-size: 13px; padding: 2px 0; }
+  .content { max-width: 680px; margin: 0 auto; padding: 20px 16px 16px; }
+  .action-section { max-width: 680px; margin: 0 auto; padding: 20px 16px 48px; border-top: 1px solid #e0d8cc; margin-top: 8px; }
+  .action-section label { display: block; font-size: 13px; font-weight: 600; color: #555; margin-bottom: 6px; }
+  .action-section input { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 7px; font-size: 15px; font-family: inherit; background: #fafaf8; color: #2c2c2c; -webkit-appearance: none; margin-bottom: 10px; }
+  .action-section input:focus { outline: none; border-color: #8B7355; background: #fff; box-shadow: 0 0 0 3px rgba(139,115,85,0.12); }
+  .action-section button { width: 100%; padding: 14px; background: #8B7355; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; min-height: 50px; -webkit-tap-highlight-color: transparent; }
+  .action-section button:hover { background: #7a6347; }
+  .action-section button:disabled { background: #bbb; cursor: not-allowed; }
+  .action-status { font-size: 13px; margin-top: 10px; min-height: 20px; }
   .action-status.ok { color: #1e8449; }
   .action-status.err { color: #c0392b; }
+  .result-links { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+  .result-link { flex: 1; min-width: 120px; padding: 13px 10px; border-radius: 8px; font-size: 14px; font-weight: 600; text-align: center; text-decoration: none; display: block; -webkit-tap-highlight-color: transparent; }
+  .result-link-doc { background: #8B7355; color: #fff; }
+  .result-link-doc:hover { background: #7a6347; }
+  .result-link-pdf { background: #f0e8d8; color: #6b4f1e; }
+  .result-link-pdf:hover { background: #e5dace; }
   .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; margin-right: 6px; vertical-align: middle; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .content { max-width: 680px; margin: 0 auto; padding: 20px 16px 48px; }
   h1 { font-size: 20px; color: #1a1a2e; border-bottom: 3px solid #8B7355; padding-bottom: 8px; margin-top: 0; margin-bottom: 8px; line-height: 1.3; }
   h2 { font-size: 13px; color: #fff; background: #8B7355; padding: 6px 12px; border-radius: 5px; margin-top: 20px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
   h3 { font-size: 15px; color: #1a1a2e; margin-top: 16px; margin-bottom: 6px; }
@@ -350,23 +377,27 @@ const briefWebHtml = (html: string, skillId: string, inputs: Record<string, stri
   <span class="title">Quick Reference</span>
   <span class="date">${new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
 </div>
-<div class="action-bar">
-  <input type="email" id="email" placeholder="Share with (optional email)" autocomplete="email">
-  <button id="btn-full" onclick="generateFullReport()">Full Report →</button>
-  <span class="action-status" id="action-status"></span>
-</div>
 <div class="content">
 ${html}
+</div>
+<div class="action-section">
+  <label for="email">Share full report with (optional)</label>
+  <input type="email" id="email" placeholder="recipient@example.com" autocomplete="email">
+  <button id="btn-full" onclick="generateFullReport()">Full Report</button>
+  <div class="action-status" id="action-status"></div>
+  <div class="result-links" id="result-links" style="display:none"></div>
 </div>
 <script>
 const _skillId = ${JSON.stringify(skillId)};
 const _inputs  = ${JSON.stringify(inputs)};
 
 async function generateFullReport() {
-  const btn    = document.getElementById('btn-full');
-  const status = document.getElementById('action-status');
-  const email  = document.getElementById('email').value.trim();
-  btn.disabled = true;
+  const btn     = document.getElementById('btn-full');
+  const status  = document.getElementById('action-status');
+  const resultEl = document.getElementById('result-links');
+  const email   = document.getElementById('email').value.trim();
+  btn.disabled  = true;
+  resultEl.style.display = 'none';
   status.className = 'action-status';
   status.innerHTML = '<span class="spinner"></span>Generating full report…';
   try {
@@ -377,11 +408,15 @@ async function generateFullReport() {
     });
     if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Unknown error'); }
     const data = await res.json();
-    let msg = data.reused ? '✓ Opening existing report…' : '✓ Report created — opening…';
-    if (data.shared) msg = '✓ Report created and shared — opening…';
+    let msg = data.reused ? '✓ Existing report found' : '✓ Report created';
+    if (data.shared) msg += ' and shared';
     status.className = 'action-status ok';
     status.textContent = msg;
-    setTimeout(() => { window.location.href = data.url; }, 800);
+    resultEl.style.display = 'flex';
+    resultEl.innerHTML = \`
+      <a href="\${data.docUrl}" target="_blank" class="result-link result-link-doc">Open Google Doc</a>
+      <a href="\${data.pdfUrl}" class="result-link result-link-pdf">Download PDF</a>\`;
+    btn.disabled = false;
   } catch (err) {
     status.className = 'action-status err';
     status.textContent = '✗ ' + err.message;
@@ -453,6 +488,24 @@ app.get('/api/reports', (_req, res) => {
   res.json([...loadReports()].reverse());
 });
 
+app.get('/api/pdf/:id', async (req, res) => {
+  const record = loadReports().find(r => r.id === req.params.id);
+  if (!record) { res.status(404).json({ error: 'Report not found' }); return; }
+  try {
+    const bodyHtml = await marked(record.markdown);
+    const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+    const page = await browser.newPage();
+    await page.setContent(pdfHtml(bodyHtml), { waitUntil: 'networkidle0' });
+    const pdf = await page.pdf({ format: 'A4', margin: { top: '14mm', bottom: '14mm', left: '12mm', right: '12mm' } });
+    await browser.close();
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', `attachment; filename="${record.skillId}-report.pdf"`);
+    res.send(pdf);
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 app.delete('/api/reports/:id', (req, res) => {
   saveReports(loadReports().filter(r => r.id !== req.params.id));
   res.json({ ok: true });
@@ -518,7 +571,7 @@ IMPORTANT: This is a QUICK REFERENCE format for use on a mobile device during a 
     // --- FULL REPORT ---
     if (existing) {
       if (email) await shareGoogleDoc(docIdFromUrl(existing.docUrl), email);
-      res.json({ url: existing.docUrl, reused: true, shared: !!email });
+      res.json({ docUrl: existing.docUrl, pdfUrl: `/api/pdf/${existing.id}`, reused: true, shared: !!email });
       return;
     }
 
@@ -528,30 +581,24 @@ IMPORTANT: This is a QUICK REFERENCE format for use on a mobile device during a 
       system: skill.system,
       messages: [{ role: 'user', content: skill.userPrompt(inputs) }],
     });
-    const bodyHtml = await marked((msg.content[0] as { type: 'text'; text: string }).text);
+    const markdown = (msg.content[0] as { type: 'text'; text: string }).text;
+    const bodyHtml = await marked(markdown);
 
     const title = `${skill.name} — ${new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}`;
     const docId = await createGoogleDoc(title, bodyHtml); // throws on failure — no save below if this fails
     const docUrl = `https://docs.google.com/document/d/${docId}/edit`;
     if (email) await shareGoogleDoc(docId, email);
 
+    const recordId = Math.random().toString(36).slice(2) + Date.now().toString(36);
     try {
       const reports = loadReports();
-      reports.push({
-        id: Math.random().toString(36).slice(2) + Date.now().toString(36),
-        skillId,
-        title,
-        description: generateDescription(skill, inputs),
-        inputs,
-        docUrl,
-        createdAt: new Date().toISOString(),
-      });
+      reports.push({ id: recordId, skillId, title, description: generateDescription(skill, inputs), inputs, docUrl, markdown, createdAt: new Date().toISOString() });
       saveReports(reports);
     } catch (saveErr) {
       console.error('Failed to save report record (doc was created):', saveErr);
     }
 
-    res.json({ url: docUrl, reused: false, shared: !!email });
+    res.json({ docUrl, pdfUrl: `/api/pdf/${recordId}`, reused: false, shared: !!email });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('Generation error:', msg);

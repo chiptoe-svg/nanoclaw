@@ -81,11 +81,12 @@
   .modal-btn-secondary { flex: 1; padding: 13px; background: #f0ebe3; color: #555; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; min-height: 46px; }
   .modal-btn-secondary:hover { background: #e5ddd2; }
 
-  .recipient-bar { background: #f0ebe3; border-bottom: 1px solid #e0d8cc; padding: 10px 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .recipient-bar label { font-size: 13px; font-weight: 600; color: #555; white-space: nowrap; }
-  .recipient-bar input { flex: 1; min-width: 180px; padding: 8px 11px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; background: #fff; color: #2c2c2c; -webkit-appearance: none; }
-  .recipient-bar input:focus { outline: none; border-color: #8B7355; box-shadow: 0 0 0 3px rgba(139,115,85,0.12); }
-  .recipient-bar .hint { font-size: 12px; color: #999; white-space: nowrap; }
+  .result-links { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .result-link { flex: 1; min-width: 120px; padding: 13px 10px; border-radius: 8px; font-size: 14px; font-weight: 600; text-align: center; text-decoration: none; cursor: pointer; -webkit-tap-highlight-color: transparent; display: block; }
+  .result-link-doc { background: #8B7355; color: #fff; }
+  .result-link-doc:hover { background: #7a6347; }
+  .result-link-pdf { background: #f0e8d8; color: #6b4f1e; }
+  .result-link-pdf:hover { background: #e5dace; }
 
   /* History */
   .history-empty { color: #999; font-size: 14px; padding: 8px 0; }
@@ -105,7 +106,6 @@
   @media (min-width: 600px) {
     header { padding: 22px 40px; }
     header h1 { font-size: 20px; }
-    .recipient-bar { padding: 10px 40px; }
     .container { padding: 32px 20px 60px; }
     .panel { padding: 32px; }
   }
@@ -117,12 +117,6 @@
   <h1>Montessori Skill Designer</h1>
   <p>Generate evidence-based lesson plans and environment designs</p>
 </header>
-
-<div class="recipient-bar">
-  <label for="recipient-email">Share full report with</label>
-  <input type="email" id="recipient-email" placeholder="recipient@example.com" autocomplete="email">
-  <span class="hint">optional — they'll get a Google Doc they can edit</span>
-</div>
 
 <div class="container">
   <div class="tabs" id="tabs"></div>
@@ -199,7 +193,8 @@ async function loadHistory() {
           <div class="history-date">${new Date(r.createdAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
         </div>
         <div class="history-actions">
-          <a href="${r.docUrl}" target="_blank" class="history-btn history-btn-open">Open Doc</a>
+          <a href="${r.docUrl}" target="_blank" class="history-btn history-btn-open">Doc</a>
+          <a href="/api/pdf/${r.id}" class="history-btn history-btn-open" style="background:#f0e8d8;color:#6b4f1e">PDF</a>
           <button class="history-btn history-btn-delete" onclick="deleteReport('${r.id}')">Delete</button>
         </div>
       </div>`).join('');
@@ -264,11 +259,16 @@ async function init() {
       <p class="panel-desc">${skill.description}</p>
       <form id="form-${skill.id}" onsubmit="handleSubmit(event,'${skill.id}')">
         ${fieldsHtml}
+        <div class="field" style="margin-top:8px">
+          <label for="${skill.id}_recipient">Share full report with <span class="badge-optional">optional</span></label>
+          <input type="email" id="${skill.id}_recipient" placeholder="recipient@example.com" autocomplete="email">
+        </div>
         <div class="btn-row">
-          <button type="button" class="btn btn-full"  id="btn-full-${skill.id}"  onclick="handleSubmit(event,'${skill.id}','full')">📄 Full Report</button>
-          <button type="button" class="btn btn-brief" id="btn-brief-${skill.id}" onclick="handleSubmit(event,'${skill.id}','brief')">📱 Quick Reference</button>
+          <button type="button" class="btn btn-full"  id="btn-full-${skill.id}"  onclick="handleSubmit(event,'${skill.id}','full')">Full Report</button>
+          <button type="button" class="btn btn-brief" id="btn-brief-${skill.id}" onclick="handleSubmit(event,'${skill.id}','brief')">Quick Reference</button>
         </div>
         <div class="status" id="status-${skill.id}"></div>
+        <div class="result-links" id="result-${skill.id}" style="display:none"></div>
       </form>`;
     panelsEl.appendChild(panel);
   });
@@ -343,17 +343,19 @@ function closeModal() {
 }
 
 async function runGenerate(skillId, inputs, format) {
-  const btnFull  = document.getElementById('btn-full-'  + skillId);
-  const btnBrief = document.getElementById('btn-brief-' + skillId);
-  const status   = document.getElementById('status-' + skillId);
-  const isBrief  = format === 'brief';
+  const btnFull   = document.getElementById('btn-full-'  + skillId);
+  const btnBrief  = document.getElementById('btn-brief-' + skillId);
+  const status    = document.getElementById('status-' + skillId);
+  const resultEl  = document.getElementById('result-' + skillId);
+  const isBrief   = format === 'brief';
 
   btnFull.disabled = btnBrief.disabled = true;
+  resultEl.style.display = 'none';
   status.className = 'status loading';
   status.innerHTML = `<span class="spinner"></span>${isBrief ? 'Building quick reference…' : 'Generating report…'}`;
 
   try {
-    const recipientEmail = document.getElementById('recipient-email').value.trim();
+    const recipientEmail = (document.getElementById(skillId + '_recipient') || {}).value?.trim() || '';
 
     const res = await fetch('/api/generate', {
       method: 'POST',
@@ -368,18 +370,23 @@ async function runGenerate(skillId, inputs, format) {
 
     const data = await res.json();
 
-    if (!isBrief) {
-      let msg = data.reused ? '✓ Using your existing report' : '✓ Report created';
-      if (data.shared) msg += ` and shared with ${recipientEmail}`;
-      msg += ' — opening now…';
-      status.className = 'status ok';
-      status.textContent = msg;
-      if (!data.reused) await loadHistory();
-      await new Promise(r => setTimeout(r, 1000));
+    if (isBrief) {
+      window.location.href = data.url;
+      return;
     }
 
-    window.location.href = data.url;
-    return;
+    // Full report — show links, don't navigate
+    let msg = data.reused ? '✓ Existing report found' : '✓ Report created';
+    if (data.shared) msg += ` and shared with ${recipientEmail}`;
+    status.className = 'status ok';
+    status.textContent = msg;
+
+    resultEl.style.display = 'flex';
+    resultEl.innerHTML = `
+      <a href="${data.docUrl}" target="_blank" class="result-link result-link-doc">Open Google Doc</a>
+      <a href="${data.pdfUrl}" class="result-link result-link-pdf">Download PDF</a>`;
+
+    if (!data.reused) await loadHistory();
   } catch (err) {
     status.className = 'status error';
     status.textContent = '✗ ' + err.message;
