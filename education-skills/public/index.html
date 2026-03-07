@@ -87,6 +87,21 @@
   .recipient-bar input:focus { outline: none; border-color: #8B7355; box-shadow: 0 0 0 3px rgba(139,115,85,0.12); }
   .recipient-bar .hint { font-size: 12px; color: #999; white-space: nowrap; }
 
+  /* History */
+  .history-empty { color: #999; font-size: 14px; padding: 8px 0; }
+  .history-item { display: flex; align-items: flex-start; gap: 12px; padding: 14px 0; border-bottom: 1px solid #f0ebe3; }
+  .history-item:last-child { border-bottom: none; }
+  .history-body { flex: 1; min-width: 0; }
+  .history-skill { font-size: 11px; font-weight: 700; color: #8B6914; text-transform: uppercase; letter-spacing: 0.4px; }
+  .history-desc { font-size: 14px; color: #2c2c2c; margin: 3px 0 4px; line-height: 1.45; word-break: break-word; }
+  .history-date { font-size: 12px; color: #999; }
+  .history-actions { display: flex; gap: 8px; flex-shrink: 0; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+  .history-btn { font-size: 13px; font-weight: 500; padding: 7px 12px; border-radius: 6px; border: none; cursor: pointer; text-decoration: none; display: inline-block; line-height: 1; min-height: 34px; display: flex; align-items: center; -webkit-tap-highlight-color: transparent; }
+  .history-btn-open { background: #8B7355; color: #fff; }
+  .history-btn-open:hover { background: #7a6347; }
+  .history-btn-delete { background: #f5ede6; color: #a04040; }
+  .history-btn-delete:hover { background: #f0ddd3; }
+
   @media (min-width: 600px) {
     header { padding: 22px 40px; }
     header h1 { font-size: 20px; }
@@ -131,6 +146,15 @@
 let skills = [];
 let pendingSubmit = null; // { skillId, inputs } — set when modal is shown
 
+function activateTab(id) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  const tab = document.querySelector(`.tab[data-id="${id}"]`);
+  const panel = document.getElementById('panel-' + id);
+  if (tab) tab.classList.add('active');
+  if (panel) panel.classList.add('active');
+}
+
 const DEFAULTS = {
   'mixed-age-learning': {
     age_groups: '6–7 year olds and 9–10 year olds',
@@ -151,6 +175,49 @@ const DEFAULTS = {
   },
 };
 
+const shortSkillNames = {
+  'mixed-age-learning':   'Mixed-Age Learning',
+  'prepared-environment': 'Prepared Environment',
+  'three-part-lesson':    'Three-Part Lesson',
+  'work-cycle':           'Work Cycle',
+};
+
+async function loadHistory() {
+  const panel = document.getElementById('panel-history');
+  try {
+    const res = await fetch('/api/reports');
+    const reports = await res.json();
+    if (reports.length === 0) {
+      panel.innerHTML = '<p class="history-empty">No reports yet. Generate a Full Report to save it here.</p>';
+      return;
+    }
+    panel.innerHTML = reports.map(r => `
+      <div class="history-item" id="hist-${r.id}">
+        <div class="history-body">
+          <div class="history-skill">${shortSkillNames[r.skillId] || r.skillId}</div>
+          <div class="history-desc">${r.description}</div>
+          <div class="history-date">${new Date(r.createdAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+        </div>
+        <div class="history-actions">
+          <a href="${r.docUrl}" target="_blank" class="history-btn history-btn-open">Open Doc</a>
+          <button class="history-btn history-btn-delete" onclick="deleteReport('${r.id}')">Delete</button>
+        </div>
+      </div>`).join('');
+  } catch {
+    panel.innerHTML = '<p class="history-empty">Could not load history.</p>';
+  }
+}
+
+async function deleteReport(id) {
+  await fetch('/api/reports/' + id, { method: 'DELETE' });
+  const el = document.getElementById('hist-' + id);
+  if (el) el.remove();
+  const panel = document.getElementById('panel-history');
+  if (panel && !panel.querySelector('.history-item')) {
+    panel.innerHTML = '<p class="history-empty">No reports yet. Generate a Full Report to save it here.</p>';
+  }
+}
+
 async function init() {
   const res = await fetch('/api/skills');
   skills = await res.json();
@@ -168,13 +235,9 @@ async function init() {
   skills.forEach((skill, i) => {
     const tab = document.createElement('button');
     tab.className = 'tab' + (i === 0 ? ' active' : '');
+    tab.dataset.id = skill.id;
     tab.textContent = shortNames[skill.id] || skill.name;
-    tab.onclick = () => {
-      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-      tab.classList.add('active');
-      document.getElementById('panel-' + skill.id).classList.add('active');
-    };
+    tab.onclick = () => activateTab(skill.id);
     tabsEl.appendChild(tab);
 
     const panel = document.createElement('div');
@@ -209,6 +272,20 @@ async function init() {
       </form>`;
     panelsEl.appendChild(panel);
   });
+
+  // History tab
+  const histTab = document.createElement('button');
+  histTab.className = 'tab';
+  histTab.dataset.id = 'history';
+  histTab.textContent = 'History';
+  histTab.onclick = () => activateTab('history');
+  tabsEl.appendChild(histTab);
+
+  const histPanel = document.createElement('div');
+  histPanel.id = 'panel-history';
+  histPanel.className = 'panel';
+  panelsEl.appendChild(histPanel);
+  await loadHistory();
 
   document.getElementById('modal-proceed').onclick = () => {
     const ps = pendingSubmit;
@@ -273,7 +350,7 @@ async function runGenerate(skillId, inputs, format) {
 
   btnFull.disabled = btnBrief.disabled = true;
   status.className = 'status loading';
-  status.innerHTML = `<span class="spinner"></span>${isBrief ? 'Building quick reference…' : 'Generating report — usually 20–40 seconds…'}`;
+  status.innerHTML = `<span class="spinner"></span>${isBrief ? 'Building quick reference…' : 'Generating report…'}`;
 
   try {
     const recipientEmail = document.getElementById('recipient-email').value.trim();
@@ -290,11 +367,17 @@ async function runGenerate(skillId, inputs, format) {
     }
 
     const data = await res.json();
-    if (!isBrief && data.shared) {
+
+    if (!isBrief) {
+      let msg = data.reused ? '✓ Using your existing report' : '✓ Report created';
+      if (data.shared) msg += ` and shared with ${recipientEmail}`;
+      msg += ' — opening now…';
       status.className = 'status ok';
-      status.textContent = `✓ Google Doc created and shared with ${recipientEmail} — opening now…`;
-      await new Promise(r => setTimeout(r, 1200));
+      status.textContent = msg;
+      if (!data.reused) await loadHistory();
+      await new Promise(r => setTimeout(r, 1000));
     }
+
     window.location.href = data.url;
     return;
   } catch (err) {

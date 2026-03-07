@@ -261,6 +261,45 @@ function purgeOldQuickRefs() {
   }
 }
 
+// Report persistence
+interface ReportRecord {
+  id: string;
+  skillId: string;
+  title: string;
+  description: string;
+  inputs: Record<string, string>;
+  docUrl: string;
+  createdAt: string;
+}
+
+const REPORTS_PATH = path.join(__dirname, '../reports.json');
+
+function loadReports(): ReportRecord[] {
+  try { return JSON.parse(fs.readFileSync(REPORTS_PATH, 'utf-8')); }
+  catch { return []; }
+}
+
+function saveReports(reports: ReportRecord[]): void {
+  fs.writeFileSync(REPORTS_PATH, JSON.stringify(reports, null, 2));
+}
+
+function inputsMatch(a: Record<string, string>, b: Record<string, string>): boolean {
+  const norm = (o: Record<string, string>) =>
+    Object.fromEntries(Object.entries(o).filter(([, v]) => v.trim()));
+  const na = norm(a), nb = norm(b);
+  const keys = new Set([...Object.keys(na), ...Object.keys(nb)]);
+  return [...keys].every(k => (na[k] ?? '') === (nb[k] ?? ''));
+}
+
+function generateDescription(skill: Skill, inputs: Record<string, string>): string {
+  const vals = skill.fields.filter(f => f.required).map(f => inputs[f.id]).filter(Boolean);
+  return vals.slice(0, 2).map(v => v.replace(/\n.*/s, '').slice(0, 70)).join(' — ');
+}
+
+function docIdFromUrl(url: string): string {
+  return url.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] ?? '';
+}
+
 const briefWebHtml = (html: string) => `<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8">
@@ -304,33 +343,41 @@ ${html}
 </div>
 </body></html>`;
 
-async function createGoogleDoc(title: string, bodyHtml: string, recipientEmail?: string): Promise<string> {
+function getGoogleAuth() {
   const credsPath = path.join(os.homedir(), '.workspace-mcp/credentials/chiptoe1@gmail.com.json');
   const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
-
   const auth = new google.auth.OAuth2(creds.client_id, creds.client_secret);
   auth.setCredentials({ refresh_token: creds.refresh_token, access_token: creds.token });
+  return auth;
+}
 
-  const drive = google.drive({ version: 'v3', auth });
+async function createGoogleDoc(title: string, bodyHtml: string): Promise<string> {
+  const drive = google.drive({ version: 'v3', auth: getGoogleAuth() });
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title></head><body>${bodyHtml}</body></html>`;
-
   const res = await drive.files.create({
     requestBody: { name: title, mimeType: 'application/vnd.google-apps.document' },
     media: { mimeType: 'text/html', body: html },
     fields: 'id',
   });
+  return res.data.id!;
+}
 
-  const docId = res.data.id!;
+async function shareGoogleDoc(docId: string, recipientEmail: string): Promise<void> {
+  const drive = google.drive({ version: 'v3', auth: getGoogleAuth() });
+  await drive.permissions.create({
+    fileId: docId,
+    sendNotificationEmail: true,
+    requestBody: { role: 'writer', type: 'user', emailAddress: recipientEmail },
+  });
+}
 
-  if (recipientEmail) {
-    await drive.permissions.create({
-      fileId: docId,
-      sendNotificationEmail: true,
-      requestBody: { role: 'writer', type: 'user', emailAddress: recipientEmail },
-    });
-  }
-
-  return `https://docs.google.com/document/d/${docId}/edit`;
+async function fetchDocText(docId: string): Promise<string> {
+  const drive = google.drive({ version: 'v3', auth: getGoogleAuth() });
+  const res = await drive.files.export(
+    { fileId: docId, mimeType: 'text/plain' },
+    { responseType: 'text' },
+  );
+  return res.data as string;
 }
 
 const app = express();
@@ -346,6 +393,15 @@ app.get('/quick-ref/:id', (req, res) => {
 
 app.get('/api/skills', (_req, res) => {
   res.json(SKILLS.map(({ id, name, description, fields }) => ({ id, name, description, fields })));
+});
+
+app.get('/api/reports', (_req, res) => {
+  res.json([...loadReports()].reverse());
+});
+
+app.delete('/api/reports/:id', (req, res) => {
+  saveReports(loadReports().filter(r => r.id !== req.params.id));
+  res.json({ ok: true });
 });
 
 app.post('/api/generate', async (req, res) => {
@@ -367,30 +423,77 @@ IMPORTANT: This is a QUICK REFERENCE format for use on a mobile device during a 
 - Structure strictly: Overview (2–3 lines) → Materials checklist → Step-by-step sequence → One quick-reference box at the end
 - Omit all evidence citations, theoretical background, and extended explanations`;
 
+  const email = recipientEmail?.trim() || undefined;
+
   try {
+    const existing = loadReports().find(r => r.skillId === skillId && inputsMatch(r.inputs, inputs));
     const client = new Anthropic({ apiKey });
-    const message = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: format === 'brief' ? 1024 : 4096,
-      system: skill.system + (format === 'brief' ? briefSuffix : ''),
-      messages: [{ role: 'user', content: skill.userPrompt(inputs) }],
-    });
 
-    const markdown = (message.content[0] as { type: 'text'; text: string }).text;
-    const bodyHtml = await marked(markdown);
-
+    // --- QUICK REFERENCE ---
     if (format === 'brief') {
+      let markdown: string;
+
+      if (existing) {
+        // Generate quick ref from the current Google Doc content
+        const docText = await fetchDocText(docIdFromUrl(existing.docUrl));
+        const msg = await client.messages.create({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 1024,
+          system: skill.system + briefSuffix,
+          messages: [{ role: 'user', content: `Condense this full report into a quick reference:\n\n${docText}` }],
+        });
+        markdown = (msg.content[0] as { type: 'text'; text: string }).text;
+      } else {
+        const msg = await client.messages.create({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 1024,
+          system: skill.system + briefSuffix,
+          messages: [{ role: 'user', content: skill.userPrompt(inputs) }],
+        });
+        markdown = (msg.content[0] as { type: 'text'; text: string }).text;
+      }
+
+      const bodyHtml = await marked(markdown);
       purgeOldQuickRefs();
       const id = Math.random().toString(36).slice(2) + Date.now().toString(36);
       quickRefStore.set(id, { html: briefWebHtml(bodyHtml), created: Date.now() });
-      res.json({ url: `/quick-ref/${id}` });
+      res.json({ url: `/quick-ref/${id}`, fromExisting: !!existing });
       return;
     }
 
+    // --- FULL REPORT ---
+    if (existing) {
+      if (email) await shareGoogleDoc(docIdFromUrl(existing.docUrl), email);
+      res.json({ url: existing.docUrl, reused: true, shared: !!email });
+      return;
+    }
+
+    const msg = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4096,
+      system: skill.system,
+      messages: [{ role: 'user', content: skill.userPrompt(inputs) }],
+    });
+    const bodyHtml = await marked((msg.content[0] as { type: 'text'; text: string }).text);
+
     const title = `${skill.name} — ${new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}`;
-    const email = recipientEmail?.trim() || undefined;
-    const docUrl = await createGoogleDoc(title, bodyHtml, email);
-    res.json({ url: docUrl, shared: !!email });
+    const docId = await createGoogleDoc(title, bodyHtml);
+    const docUrl = `https://docs.google.com/document/d/${docId}/edit`;
+    if (email) await shareGoogleDoc(docId, email);
+
+    const reports = loadReports();
+    reports.push({
+      id: Math.random().toString(36).slice(2) + Date.now().toString(36),
+      skillId,
+      title,
+      description: generateDescription(skill, inputs),
+      inputs,
+      docUrl,
+      createdAt: new Date().toISOString(),
+    });
+    saveReports(reports);
+
+    res.json({ url: docUrl, reused: false, shared: !!email });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('Generation error:', msg);
