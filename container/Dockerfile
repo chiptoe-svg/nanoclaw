@@ -25,7 +25,16 @@ RUN apt-get update && apt-get install -y \
     curl \
     git \
     poppler-utils \
+    python3 \
+    python3-pip \
+    python3-venv \
     && rm -rf /var/lib/apt/lists/*
+
+# Install uv (Python package manager) and google_workspace_mcp
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
+RUN git clone --depth 1 https://github.com/taylorwilsdon/google_workspace_mcp.git /opt/google_workspace_mcp \
+    && cd /opt/google_workspace_mcp && /root/.local/bin/uv sync
 
 # Set Chromium path for agent-browser
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium

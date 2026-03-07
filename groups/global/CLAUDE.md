@@ -75,3 +75,21 @@ NEVER use markdown. Only use WhatsApp/Telegram formatting:
 - ```triple backticks``` for code
 
 No ## headings. No [links](url). No **double stars**.
+
+## Google Workspace
+
+You have access to Google Workspace via MCP tools (prefix: `mcp__workspace__`):
+- *Gmail*: search, read, send, draft, manage labels (`gmail_search`, `gmail_read`, `gmail_send`, `gmail_draft`)
+- *Calendar*: list events, create/update/delete, find free time (`list_calendars`, `get_events`, `create_event`)
+- *Drive*: search, read, create, share files (`drive_search_files`, `drive_read_file`, `drive_create_file`)
+- *Docs*: create, read, edit documents (`create_doc`, `read_doc`, `update_doc`)
+- *Sheets*: create, read, update spreadsheets (`create_spreadsheet`, `read_spreadsheet`, `update_spreadsheet`)
+- *Slides*: create, update presentations (`create_presentation`, `update_presentation`)
+- *Forms*: create forms, read responses (`create_form`, `get_form_responses`)
+- *Tasks*: list, create, update, delete tasks (`list_tasks`, `create_task`, `update_task`)
+- *Contacts*: search and manage contacts (`search_contacts`, `get_contact`)
+- *Chat*: send messages, list spaces (`send_chat_message`, `list_spaces`)
+- *Apps Script*: run scripts, manage projects (`run_script_function`, `list_script_projects`)
+- *Search*: Google Custom Search (`search_google`)
+
+The authenticated Google account is chiptoe1@gmail.com.

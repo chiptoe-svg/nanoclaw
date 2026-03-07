@@ -470,7 +470,8 @@ async function runQuery(
         'TeamCreate', 'TeamDelete', 'SendMessage',
         'TodoWrite', 'ToolSearch', 'Skill',
         'NotebookEdit',
-        'mcp__nanoclaw__*'
+        'mcp__nanoclaw__*',
+        'mcp__workspace__*',
       ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
@@ -484,6 +485,20 @@ async function runQuery(
             NANOCLAW_CHAT_JID: containerInput.chatJid,
             NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
+          },
+        },
+        workspace: {
+          command: '/opt/google_workspace_mcp/.venv/bin/python',
+          args: [
+            '/opt/google_workspace_mcp/main.py',
+            '--single-user',
+            '--tools', 'gmail', 'calendar', 'drive', 'tasks', 'docs', 'sheets', 'slides', 'forms', 'chat', 'contacts', 'appscript', 'search',
+          ],
+          env: {
+            GOOGLE_OAUTH_CLIENT_ID: (sdkEnv.GOOGLE_OAUTH_CLIENT_ID as string) || '',
+            GOOGLE_OAUTH_CLIENT_SECRET: (sdkEnv.GOOGLE_OAUTH_CLIENT_SECRET as string) || '',
+            WORKSPACE_MCP_CREDENTIALS_DIR: '/home/node/.workspace-mcp/credentials',
+            OAUTHLIB_INSECURE_TRANSPORT: '1',
           },
         },
       },

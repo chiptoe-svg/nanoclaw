@@ -4,6 +4,7 @@
  */
 import { ChildProcess, exec, spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import {
@@ -198,6 +199,16 @@ function buildVolumeMounts(
     readonly: false,
   });
 
+  // Google Workspace MCP credentials
+  const workspaceDir = path.join(os.homedir(), '.workspace-mcp');
+  if (fs.existsSync(workspaceDir)) {
+    mounts.push({
+      hostPath: workspaceDir,
+      containerPath: '/home/node/.workspace-mcp',
+      readonly: false,
+    });
+  }
+
   // Additional mounts validated against external allowlist (tamper-proof from containers)
   if (group.containerConfig?.additionalMounts) {
     const validatedMounts = validateAdditionalMounts(
@@ -221,6 +232,8 @@ function readSecrets(): Record<string, string> {
     'ANTHROPIC_API_KEY',
     'ANTHROPIC_BASE_URL',
     'ANTHROPIC_AUTH_TOKEN',
+    'GOOGLE_OAUTH_CLIENT_ID',
+    'GOOGLE_OAUTH_CLIENT_SECRET',
   ]);
 }
 
