@@ -333,6 +333,52 @@ Use available_groups.json to find the JID for a group. The folder name must be c
   },
 );
 
+server.tool(
+  'send_photo',
+  'Send an image file to the chat. The file must be in your workspace (/workspace/group/). Provide a path relative to /workspace/group/ (e.g., "images/chart.png").',
+  {
+    file_path: z.string().describe('Path to the image file, relative to /workspace/group/ (e.g., "images/chart.png")'),
+    caption: z.string().optional().describe('Optional caption for the image'),
+  },
+  async (args) => {
+    const data = {
+      type: 'photo',
+      chatJid,
+      filePath: args.file_path,
+      caption: args.caption || undefined,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    };
+
+    writeIpcFile(MESSAGES_DIR, data);
+
+    return { content: [{ type: 'text' as const, text: 'Photo queued for sending.' }] };
+  },
+);
+
+server.tool(
+  'send_document',
+  'Send a file/document to the chat. The file must be in your workspace (/workspace/group/). Provide a path relative to /workspace/group/ (e.g., "reports/summary.pdf").',
+  {
+    file_path: z.string().describe('Path to the file, relative to /workspace/group/ (e.g., "reports/summary.pdf")'),
+    caption: z.string().optional().describe('Optional caption for the document'),
+  },
+  async (args) => {
+    const data = {
+      type: 'document',
+      chatJid,
+      filePath: args.file_path,
+      caption: args.caption || undefined,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    };
+
+    writeIpcFile(MESSAGES_DIR, data);
+
+    return { content: [{ type: 'text' as const, text: 'Document queued for sending.' }] };
+  },
+);
+
 // Start the stdio transport
 const transport = new StdioServerTransport();
 await server.connect(transport);

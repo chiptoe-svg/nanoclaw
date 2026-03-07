@@ -4,7 +4,10 @@ import path from 'path';
 import {
   ASSISTANT_NAME,
   IDLE_TIMEOUT,
+  MESSAGE_RETENTION_DAYS,
   POLL_INTERVAL,
+  RATE_LIMIT_MAX,
+  RATE_LIMIT_WINDOW_MS,
   TIMEZONE,
   TRIGGER_PATTERN,
 } from './config.js';
@@ -26,6 +29,7 @@ import {
 import {
   getAllChats,
   getAllRegisteredGroups,
+  pruneOldMessages,
   getAllSessions,
   getAllTasks,
   getMessagesSince,
@@ -52,6 +56,7 @@ import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { parseImageReferences } from './image.js';
 import { logger } from './logger.js';
+import { RateLimiter } from './rate-limiter.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
@@ -64,6 +69,7 @@ let messageLoopRunning = false;
 
 const channels: Channel[] = [];
 const queue = new GroupQueue();
+const rateLimiter = new RateLimiter(RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
 
 function loadState(): void {
   lastTimestamp = getRouterState('last_timestamp') || '';
@@ -205,32 +211,41 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let hadError = false;
   let outputSentToUser = false;
 
-  const output = await runAgent(group, prompt, chatJid, imageAttachments, async (result) => {
-    // Streaming output callback — called for each agent result
-    if (result.result) {
-      const raw =
-        typeof result.result === 'string'
-          ? result.result
-          : JSON.stringify(result.result);
-      // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-      const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
-      logger.info({ group: group.name }, `Agent output: ${raw.slice(0, 200)}`);
-      if (text) {
-        await channel.sendMessage(chatJid, text);
-        outputSentToUser = true;
+  const output = await runAgent(
+    group,
+    prompt,
+    chatJid,
+    imageAttachments,
+    async (result) => {
+      // Streaming output callback — called for each agent result
+      if (result.result) {
+        const raw =
+          typeof result.result === 'string'
+            ? result.result
+            : JSON.stringify(result.result);
+        // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
+        const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+        logger.info(
+          { group: group.name },
+          `Agent output: ${raw.slice(0, 200)}`,
+        );
+        if (text) {
+          await channel.sendMessage(chatJid, text);
+          outputSentToUser = true;
+        }
+        // Only reset idle timer on actual results, not session-update markers (result: null)
+        resetIdleTimer();
       }
-      // Only reset idle timer on actual results, not session-update markers (result: null)
-      resetIdleTimer();
-    }
 
-    if (result.status === 'success') {
-      queue.notifyIdle(chatJid);
-    }
+      if (result.status === 'success') {
+        queue.notifyIdle(chatJid);
+      }
 
-    if (result.status === 'error') {
-      hadError = true;
-    }
-  });
+      if (result.status === 'error') {
+        hadError = true;
+      }
+    },
+  );
 
   await channel.setTyping?.(chatJid, false);
   if (idleTimer) clearTimeout(idleTimer);
@@ -395,13 +410,23 @@ async function startMessageLoop(): Promise<void> {
           // context when a trigger eventually arrives.
           if (needsTrigger) {
             const allowlistCfg = loadSenderAllowlist();
-            const hasTrigger = groupMessages.some(
+            const triggerMessages = groupMessages.filter(
               (m) =>
                 TRIGGER_PATTERN.test(m.content.trim()) &&
                 (m.is_from_me ||
                   isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
             );
-            if (!hasTrigger) continue;
+            if (triggerMessages.length === 0) continue;
+
+            // Rate-limit non-self triggers; is_from_me bypasses the limiter.
+            const hasAllowedTrigger = triggerMessages.some(
+              (m) =>
+                m.is_from_me || rateLimiter.check(chatJid, m.sender),
+            );
+            if (!hasAllowedTrigger) {
+              logger.debug({ chatJid }, 'Rate limit exceeded, dropping trigger');
+              continue;
+            }
           }
 
           // Pull all messages since lastAgentTimestamp so non-trigger
@@ -469,6 +494,12 @@ async function main(): Promise<void> {
   ensureContainerSystemRunning();
   initDatabase();
   logger.info('Database initialized');
+  setInterval(() => {
+    const deleted = pruneOldMessages(MESSAGE_RETENTION_DAYS);
+    if (deleted > 0) {
+      logger.info({ deleted, retentionDays: MESSAGE_RETENTION_DAYS }, 'Pruned old messages');
+    }
+  }, 86400000);
   loadState();
 
   // Graceful shutdown handlers
@@ -555,6 +586,18 @@ async function main(): Promise<void> {
       const channel = findChannel(channels, jid);
       if (!channel) throw new Error(`No channel for JID: ${jid}`);
       return channel.sendMessage(jid, text);
+    },
+    sendPhoto: (jid, filePath, caption) => {
+      const channel = findChannel(channels, jid);
+      if (!channel) throw new Error(`No channel for JID: ${jid}`);
+      if (!channel.sendPhoto) throw new Error(`Channel ${channel.name} does not support sendPhoto`);
+      return channel.sendPhoto(jid, filePath, caption);
+    },
+    sendDocument: (jid, filePath, caption) => {
+      const channel = findChannel(channels, jid);
+      if (!channel) throw new Error(`No channel for JID: ${jid}`);
+      if (!channel.sendDocument) throw new Error(`Channel ${channel.name} does not support sendDocument`);
+      return channel.sendDocument(jid, filePath, caption);
     },
     registeredGroups: () => registeredGroups,
     registerGroup,

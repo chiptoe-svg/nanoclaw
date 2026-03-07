@@ -1,6 +1,7 @@
+import fs from 'fs';
 import path from 'path';
 
-import { Bot } from 'grammy';
+import { Bot, InputFile } from 'grammy';
 
 import { ASSISTANT_NAME, GROUPS_DIR, TRIGGER_PATTERN } from '../config.js';
 import { readEnvFile } from '../env.js';
@@ -184,7 +185,13 @@ export class TelegramChannel implements Channel {
       const isGroup =
         ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
 
-      this.opts.onChatMetadata(chatJid, timestamp, undefined, 'telegram', isGroup);
+      this.opts.onChatMetadata(
+        chatJid,
+        timestamp,
+        undefined,
+        'telegram',
+        isGroup,
+      );
 
       let content = caption ? `[Photo] ${caption}` : '[Photo]';
 
@@ -206,7 +213,10 @@ export class TelegramChannel implements Channel {
           }
         }
       } catch (err) {
-        logger.warn({ chatJid, err }, 'Telegram image download failed, using placeholder');
+        logger.warn(
+          { chatJid, err },
+          'Telegram image download failed, using placeholder',
+        );
       }
 
       this.opts.onMessage(chatJid, {
@@ -234,7 +244,13 @@ export class TelegramChannel implements Channel {
       const isGroup =
         ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
 
-      this.opts.onChatMetadata(chatJid, timestamp, undefined, 'telegram', isGroup);
+      this.opts.onChatMetadata(
+        chatJid,
+        timestamp,
+        undefined,
+        'telegram',
+        isGroup,
+      );
 
       let content = '[Voice message]';
 
@@ -248,7 +264,10 @@ export class TelegramChannel implements Channel {
           const transcript = await transcribeWithWhisperCpp(buffer);
           if (transcript && !transcript.startsWith('[Voice Message')) {
             content = `[Voice: ${transcript}]`;
-            logger.info({ chatJid, length: transcript.length }, 'Transcribed Telegram voice message');
+            logger.info(
+              { chatJid, length: transcript.length },
+              'Transcribed Telegram voice message',
+            );
           }
         }
       } catch (err) {
@@ -324,6 +343,53 @@ export class TelegramChannel implements Channel {
       logger.info({ jid, length: text.length }, 'Telegram message sent');
     } catch (err) {
       logger.error({ jid, err }, 'Failed to send Telegram message');
+    }
+  }
+
+  async sendPhoto(
+    jid: string,
+    filePath: string,
+    caption?: string,
+  ): Promise<void> {
+    if (!this.bot) {
+      logger.warn('Telegram bot not initialized');
+      return;
+    }
+    try {
+      const numericId = jid.replace(/^tg:/, '');
+      const buffer = fs.readFileSync(filePath);
+      await this.bot.api.sendPhoto(
+        numericId,
+        new InputFile(buffer, path.basename(filePath)),
+        { caption: caption || undefined },
+      );
+      logger.info({ jid, filePath }, 'Telegram photo sent');
+    } catch (err) {
+      logger.error({ jid, err }, 'Failed to send Telegram photo');
+    }
+  }
+
+  async sendDocument(
+    jid: string,
+    filePath: string,
+    caption?: string,
+  ): Promise<void> {
+    if (!this.bot) {
+      logger.warn('Telegram bot not initialized');
+      return;
+    }
+    try {
+      const numericId = jid.replace(/^tg:/, '');
+      const buffer = fs.readFileSync(filePath);
+      const fileName = path.basename(filePath);
+      await this.bot.api.sendDocument(
+        numericId,
+        new InputFile(buffer, fileName),
+        { caption: caption || undefined },
+      );
+      logger.info({ jid, filePath }, 'Telegram document sent');
+    } catch (err) {
+      logger.error({ jid, err }, 'Failed to send Telegram document');
     }
   }
 

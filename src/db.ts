@@ -634,6 +634,21 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
   return result;
 }
 
+/**
+ * Delete messages older than retentionDays and vacuum the database.
+ * Returns the number of deleted rows.
+ */
+export function pruneOldMessages(retentionDays: number): number {
+  const cutoff = new Date(
+    Date.now() - retentionDays * 24 * 60 * 60 * 1000,
+  ).toISOString();
+  const result = db
+    .prepare('DELETE FROM messages WHERE timestamp < ?')
+    .run(cutoff);
+  db.exec('VACUUM');
+  return result.changes;
+}
+
 // --- JSON migration ---
 
 function migrateJsonState(): void {

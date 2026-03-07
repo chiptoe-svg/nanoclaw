@@ -9,6 +9,7 @@ import {
   getMessagesSince,
   getNewMessages,
   getTaskById,
+  pruneOldMessages,
   setRegisteredGroup,
   storeChatMetadata,
   storeMessage,
@@ -446,6 +447,75 @@ describe('message query LIMIT', () => {
       50,
     );
     expect(messages).toHaveLength(10);
+  });
+});
+
+// --- pruneOldMessages ---
+
+describe('pruneOldMessages', () => {
+  beforeEach(() => {
+    storeChatMetadata('group@g.us', '2020-01-01T00:00:00.000Z');
+  });
+
+  it('deletes messages older than retention window', () => {
+    // Old message (200 days ago)
+    const old = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString();
+    store({
+      id: 'old-1',
+      chat_jid: 'group@g.us',
+      sender: 'user@s.whatsapp.net',
+      sender_name: 'User',
+      content: 'old message',
+      timestamp: old,
+    });
+    // Recent message (1 day ago)
+    const recent = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString();
+    store({
+      id: 'new-1',
+      chat_jid: 'group@g.us',
+      sender: 'user@s.whatsapp.net',
+      sender_name: 'User',
+      content: 'recent message',
+      timestamp: recent,
+    });
+
+    const deleted = pruneOldMessages(90);
+    expect(deleted).toBe(1);
+
+    const remaining = getMessagesSince('group@g.us', '', 'Andy');
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].id).toBe('new-1');
+  });
+
+  it('returns 0 when no messages are old enough to prune', () => {
+    const recent = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString();
+    store({
+      id: 'new-2',
+      chat_jid: 'group@g.us',
+      sender: 'user@s.whatsapp.net',
+      sender_name: 'User',
+      content: 'still fresh',
+      timestamp: recent,
+    });
+
+    const deleted = pruneOldMessages(90);
+    expect(deleted).toBe(0);
+  });
+
+  it('deletes all messages when retention is 0', () => {
+    const recent = new Date(Date.now() - 1000).toISOString();
+    store({
+      id: 'any-1',
+      chat_jid: 'group@g.us',
+      sender: 'user@s.whatsapp.net',
+      sender_name: 'User',
+      content: 'any message',
+      timestamp: recent,
+    });
+
+    const deleted = pruneOldMessages(0);
+    expect(deleted).toBe(1);
+    expect(getMessagesSince('group@g.us', '', 'Andy')).toHaveLength(0);
   });
 });
 
