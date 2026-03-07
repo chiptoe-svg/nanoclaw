@@ -4,13 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Montessori Skill Designer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f1eb; color: #2c2c2c; min-height: 100vh; }
+  body { font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF8F2; color: #2c2c2c; min-height: 100vh; }
 
-  header { background: #1a1a2e; color: #fff; padding: 18px 20px; }
+  header { background: #3A5233; color: #fff; padding: 18px 20px; }
   header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.2px; }
-  header p { color: #8a8aa0; font-size: 13px; margin-top: 3px; }
+  header p { color: #A8C8A2; font-size: 13px; margin-top: 3px; }
 
   .container { max-width: 780px; margin: 0 auto; padding: 24px 16px 60px; }
 
@@ -18,17 +20,17 @@
   .tabs { display: flex; gap: 8px; margin-bottom: 20px; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; scrollbar-width: none; }
   .tabs::-webkit-scrollbar { display: none; }
   .tab { flex-shrink: 0; background: #fff; border: 1.5px solid #ddd; border-radius: 7px; padding: 9px 14px; cursor: pointer; font-size: 13px; font-weight: 500; color: #555; transition: all 0.15s; white-space: nowrap; -webkit-tap-highlight-color: transparent; }
-  .tab:hover { border-color: #8B7355; color: #8B7355; }
-  .tab.active { background: #8B7355; border-color: #8B7355; color: #fff; }
+  .tab:hover { border-color: #4A6741; color: #4A6741; }
+  .tab.active { background: #4A6741; border-color: #4A6741; color: #fff; }
 
   .panel { display: none; background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); }
   .panel.active { display: block; }
-  .panel-desc { color: #666; font-size: 13.5px; line-height: 1.65; margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid #f0ebe3; }
+  .panel-desc { color: #666; font-size: 13.5px; line-height: 1.65; margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid #EBF3E7; }
 
   .field { margin-bottom: 16px; }
   .field label { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #333; flex-wrap: wrap; }
   .badge-required { color: #c0392b; font-size: 13px; line-height: 1; }
-  .badge-optional { background: #f0e8d8; color: #8B6914; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 10px; letter-spacing: 0.3px; text-transform: uppercase; }
+  .badge-optional { background: #EDF4E9; color: #4A6741; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 10px; letter-spacing: 0.3px; text-transform: uppercase; }
 
   .field input, .field textarea, .field select {
     width: 100%; padding: 11px 13px; border: 1px solid #ddd; border-radius: 7px;
@@ -37,7 +39,7 @@
     -webkit-appearance: none; appearance: none;
   }
   .field input:focus, .field textarea:focus, .field select:focus {
-    outline: none; border-color: #8B7355; background: #fff; box-shadow: 0 0 0 3px rgba(139,115,85,0.12);
+    outline: none; border-color: #4A6741; background: #fff; box-shadow: 0 0 0 3px rgba(74,103,65,0.12);
   }
   .field textarea { resize: vertical; min-height: 88px; line-height: 1.55; }
   .field select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23888' d='M6 8L0 0h12z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 13px center; padding-right: 34px; }
@@ -48,12 +50,12 @@
     font-weight: 600; cursor: pointer; min-height: 50px; transition: background 0.15s;
     -webkit-tap-highlight-color: transparent; touch-action: manipulation; line-height: 1.3;
   }
-  .btn-full { background: #8B7355; color: #fff; }
-  .btn-full:hover { background: #7a6347; }
-  .btn-full:active { background: #6b5540; }
-  .btn-brief { background: #f0e8d8; color: #6b4f1e; }
-  .btn-brief:hover { background: #e5dace; }
-  .btn-brief:active { background: #d9cdbf; }
+  .btn-full { background: #4A6741; color: #fff; }
+  .btn-full:hover { background: #3A5633; }
+  .btn-full:active { background: #2E4228; }
+  .btn-brief { background: #EDF4E9; color: #2E4A26; }
+  .btn-brief:hover { background: #DFF0D8; }
+  .btn-brief:active { background: #D0E9C8; }
   .btn:disabled { background: #ddd !important; color: #aaa !important; cursor: not-allowed; }
 
   .status { margin-top: 16px; padding: 14px 16px; border-radius: 8px; font-size: 14px; display: none; line-height: 1.55; }
@@ -68,38 +70,38 @@
   .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100; align-items: center; justify-content: center; padding: 20px; }
   .modal-overlay.open { display: flex; }
   .modal { background: #fff; border-radius: 14px; padding: 28px 24px; max-width: 480px; width: 100%; max-height: 80vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.18); }
-  .modal h2 { font-size: 17px; color: #1a1a2e; margin-bottom: 8px; }
+  .modal h2 { font-size: 17px; color: #3A5233; margin-bottom: 8px; }
   .modal p { font-size: 13.5px; color: #555; margin-bottom: 18px; line-height: 1.6; }
-  .modal-defaults { background: #f9f6f1; border-radius: 8px; padding: 14px 16px; margin-bottom: 20px; }
+  .modal-defaults { background: #F2F7EF; border-radius: 8px; padding: 14px 16px; margin-bottom: 20px; }
   .modal-defaults .default-item { margin-bottom: 10px; }
   .modal-defaults .default-item:last-child { margin-bottom: 0; }
-  .modal-defaults .default-label { font-size: 12px; font-weight: 700; color: #8B6914; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 2px; }
+  .modal-defaults .default-label { font-size: 12px; font-weight: 700; color: #4A6741; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 2px; }
   .modal-defaults .default-value { font-size: 13px; color: #333; line-height: 1.5; }
   .modal-btns { display: flex; gap: 10px; }
-  .modal-btn-primary { flex: 1; padding: 13px; background: #8B7355; color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; min-height: 46px; }
-  .modal-btn-primary:hover { background: #7a6347; }
-  .modal-btn-secondary { flex: 1; padding: 13px; background: #f0ebe3; color: #555; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; min-height: 46px; }
+  .modal-btn-primary { flex: 1; padding: 13px; background: #4A6741; color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; min-height: 46px; }
+  .modal-btn-primary:hover { background: #3A5633; }
+  .modal-btn-secondary { flex: 1; padding: 13px; background: #EBF3E7; color: #555; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; min-height: 46px; }
   .modal-btn-secondary:hover { background: #e5ddd2; }
 
   .result-links { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
   .result-link { flex: 1; min-width: 120px; padding: 13px 10px; border-radius: 8px; font-size: 14px; font-weight: 600; text-align: center; text-decoration: none; cursor: pointer; -webkit-tap-highlight-color: transparent; display: block; }
-  .result-link-doc { background: #8B7355; color: #fff; }
-  .result-link-doc:hover { background: #7a6347; }
-  .result-link-pdf { background: #f0e8d8; color: #6b4f1e; }
-  .result-link-pdf:hover { background: #e5dace; }
+  .result-link-doc { background: #4A6741; color: #fff; }
+  .result-link-doc:hover { background: #3A5633; }
+  .result-link-pdf { background: #EDF4E9; color: #2E4A26; }
+  .result-link-pdf:hover { background: #DFF0D8; }
 
   /* History */
   .history-empty { color: #999; font-size: 14px; padding: 8px 0; }
-  .history-item { display: flex; align-items: flex-start; gap: 12px; padding: 14px 0; border-bottom: 1px solid #f0ebe3; }
+  .history-item { display: flex; align-items: flex-start; gap: 12px; padding: 14px 0; border-bottom: 1px solid #EBF3E7; }
   .history-item:last-child { border-bottom: none; }
   .history-body { flex: 1; min-width: 0; }
-  .history-skill { font-size: 11px; font-weight: 700; color: #8B6914; text-transform: uppercase; letter-spacing: 0.4px; }
+  .history-skill { font-size: 11px; font-weight: 700; color: #4A6741; text-transform: uppercase; letter-spacing: 0.4px; }
   .history-desc { font-size: 14px; color: #2c2c2c; margin: 3px 0 4px; line-height: 1.45; word-break: break-word; }
   .history-date { font-size: 12px; color: #999; }
   .history-actions { display: flex; gap: 8px; flex-shrink: 0; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
   .history-btn { font-size: 13px; font-weight: 500; padding: 7px 12px; border-radius: 6px; border: none; cursor: pointer; text-decoration: none; display: inline-block; line-height: 1; min-height: 34px; display: flex; align-items: center; -webkit-tap-highlight-color: transparent; }
-  .history-btn-open { background: #8B7355; color: #fff; }
-  .history-btn-open:hover { background: #7a6347; }
+  .history-btn-open { background: #4A6741; color: #fff; }
+  .history-btn-open:hover { background: #3A5633; }
   .history-btn-delete { background: #f5ede6; color: #a04040; }
   .history-btn-delete:hover { background: #f0ddd3; }
 
@@ -195,7 +197,7 @@ async function loadHistory() {
         <div class="history-actions">
           <button class="history-btn history-btn-open" style="background:#e8f0e8;color:#2e5e2e" onclick="openOverview(this,'${r.id}')">Overview</button>
           <a href="${r.docUrl}" target="_blank" class="history-btn history-btn-open">Open Google Doc</a>
-          <a href="/api/pdf/${r.id}" class="history-btn history-btn-open" style="background:#f0e8d8;color:#6b4f1e">Download PDF</a>
+          <a href="/api/pdf/${r.id}" class="history-btn history-btn-open" style="background:#EDF4E9;color:#2E4A26">Download PDF</a>
           <button class="history-btn history-btn-delete" onclick="deleteReport('${r.id}')">Delete</button>
         </div>
       </div>`).join('');

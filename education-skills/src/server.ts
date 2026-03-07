@@ -307,46 +307,48 @@ const briefWebHtml = (html: string, skillId: string, inputs: Record<string, stri
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Quick Reference · Montessori Skill Designer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f1eb; color: #2c2c2c; min-height: 100vh; }
-  .topbar { background: #1a1a2e; color: #fff; padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
-  .topbar a { color: #8a8aa0; font-size: 13px; text-decoration: none; flex-shrink: 0; }
+  body { font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF8F2; color: #2c2c2c; min-height: 100vh; }
+  .topbar { background: #3A5233; color: #fff; padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
+  .topbar a { color: #A8C8A2; font-size: 13px; text-decoration: none; flex-shrink: 0; }
   .topbar a:hover { color: #fff; }
   .topbar .title { font-size: 14px; font-weight: 600; flex: 1; }
-  .topbar .date { color: #8a8aa0; font-size: 12px; flex-shrink: 0; }
+  .topbar .date { color: #A8C8A2; font-size: 12px; flex-shrink: 0; }
   .content { max-width: 680px; margin: 0 auto; padding: 20px 16px 16px; }
-  .action-section { max-width: 680px; margin: 0 auto; padding: 20px 16px 48px; border-top: 1px solid #e0d8cc; margin-top: 8px; }
+  .action-section { max-width: 680px; margin: 0 auto; padding: 20px 16px 48px; border-top: 1px solid #D8E8D2; margin-top: 8px; }
   .action-section label { display: block; font-size: 13px; font-weight: 600; color: #555; margin-bottom: 6px; }
   .action-section input { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 7px; font-size: 15px; font-family: inherit; background: #fafaf8; color: #2c2c2c; -webkit-appearance: none; margin-bottom: 10px; }
-  .action-section input:focus { outline: none; border-color: #8B7355; background: #fff; box-shadow: 0 0 0 3px rgba(139,115,85,0.12); }
-  .action-section button { width: 100%; padding: 14px; background: #8B7355; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; min-height: 50px; -webkit-tap-highlight-color: transparent; }
-  .action-section button:hover { background: #7a6347; }
+  .action-section input:focus { outline: none; border-color: #4A6741; background: #fff; box-shadow: 0 0 0 3px rgba(139,115,85,0.12); }
+  .action-section button { width: 100%; padding: 14px; background: #4A6741; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; min-height: 50px; -webkit-tap-highlight-color: transparent; }
+  .action-section button:hover { background: #3A5633; }
   .action-section button:disabled { background: #bbb; cursor: not-allowed; }
   .action-status { font-size: 13px; margin-top: 10px; min-height: 20px; }
   .action-status.ok { color: #1e8449; }
   .action-status.err { color: #c0392b; }
   .result-links { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
   .result-link { flex: 1; min-width: 120px; padding: 13px 10px; border-radius: 8px; font-size: 14px; font-weight: 600; text-align: center; text-decoration: none; display: block; -webkit-tap-highlight-color: transparent; }
-  .result-link-doc { background: #8B7355; color: #fff; }
-  .result-link-doc:hover { background: #7a6347; }
-  .result-link-pdf { background: #f0e8d8; color: #6b4f1e; }
-  .result-link-pdf:hover { background: #e5dace; }
+  .result-link-doc { background: #4A6741; color: #fff; }
+  .result-link-doc:hover { background: #3A5633; }
+  .result-link-pdf { background: #f0e8d8; color: #2E4A26; }
+  .result-link-pdf:hover { background: #DFF0D8; }
   .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; margin-right: 6px; vertical-align: middle; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  h1 { font-size: 20px; color: #1a1a2e; border-bottom: 3px solid #8B7355; padding-bottom: 8px; margin-top: 0; margin-bottom: 8px; line-height: 1.3; }
-  h2 { font-size: 13px; color: #fff; background: #8B7355; padding: 6px 12px; border-radius: 5px; margin-top: 20px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
-  h3 { font-size: 15px; color: #1a1a2e; margin-top: 16px; margin-bottom: 6px; }
+  h1 { font-size: 20px; color: #3A5233; border-bottom: 3px solid #4A6741; padding-bottom: 8px; margin-top: 0; margin-bottom: 8px; line-height: 1.3; }
+  h2 { font-size: 13px; color: #fff; background: #4A6741; padding: 6px 12px; border-radius: 5px; margin-top: 20px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+  h3 { font-size: 15px; color: #3A5233; margin-top: 16px; margin-bottom: 6px; }
   p { margin: 8px 0; font-size: 15px; line-height: 1.6; }
   ul, ol { margin: 8px 0; padding-left: 22px; }
   li { margin: 6px 0; font-size: 15px; line-height: 1.55; }
-  strong { color: #1a1a2e; }
+  strong { color: #3A5233; }
   table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
-  th { background: #8B7355; color: #fff; padding: 8px 10px; text-align: left; font-size: 13px; }
-  td { padding: 8px 10px; border-bottom: 1px solid #e0d8cc; vertical-align: top; font-size: 14px; }
-  tr:nth-child(even) td { background: #f9f6f1; }
-  blockquote { border: 2px solid #8B7355; border-radius: 6px; margin: 14px 0; padding: 12px 14px; background: #f9f6f1; font-weight: 600; font-size: 15px; }
-  hr { border: none; border-top: 1px solid #e0d8cc; margin: 16px 0; }
+  th { background: #4A6741; color: #fff; padding: 8px 10px; text-align: left; font-size: 13px; }
+  td { padding: 8px 10px; border-bottom: 1px solid #D8E8D2; vertical-align: top; font-size: 14px; }
+  tr:nth-child(even) td { background: #F2F7EF; }
+  blockquote { border: 2px solid #4A6741; border-radius: 6px; margin: 14px 0; padding: 12px 14px; background: #F2F7EF; font-weight: 600; font-size: 15px; }
+  hr { border: none; border-top: 1px solid #D8E8D2; margin: 16px 0; }
   @media (min-width: 600px) {
     .action-bar { padding: 10px 24px; }
     .content { padding: 28px 24px 60px; }
@@ -452,13 +454,13 @@ async function createGoogleDoc(title: string, bodyHtml: string, skillName: strin
   const folderId = await getOrCreateMontessoriFolder();
   const date = new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' });
   const styledBody = bodyHtml
-    .replace(/<th>/g, '<th style="background-color:#8B7355;color:#ffffff;padding:8px 12px;font-weight:bold;">');
+    .replace(/<th>/g, '<th style="background-color:#4A6741;color:#ffffff;padding:8px 12px;font-weight:bold;">');
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title></head><body>
 <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:20pt;width:100%;">
-  <tr><td style="background-color:#1a1a2e;padding:16pt 20pt;">
-    <span style="color:#ffffff;font-size:18pt;font-weight:bold;font-family:Georgia,serif;">${skillName}</span>
+  <tr><td style="background-color:#3A5233;padding:16pt 20pt;">
+    <span style="color:#ffffff;font-size:18pt;font-weight:bold;font-family:'Palatino Linotype',Palatino,Georgia,serif;">${skillName}</span>
   </td></tr>
-  <tr><td style="background-color:#8B7355;padding:7pt 20pt;">
+  <tr><td style="background-color:#4A6741;padding:7pt 20pt;">
     <span style="color:#ffffff;font-size:10pt;font-family:Arial,sans-serif;">Montessori Skill Designer &nbsp;·&nbsp; ${date}</span>
   </td></tr>
 </table>
