@@ -34,7 +34,9 @@ RUN apt-get update && apt-get install -y \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 RUN git clone --depth 1 https://github.com/taylorwilsdon/google_workspace_mcp.git /opt/google_workspace_mcp \
-    && cd /opt/google_workspace_mcp && /root/.local/bin/uv sync
+    && cd /opt/google_workspace_mcp && /root/.local/bin/uv sync \
+    && touch /opt/google_workspace_mcp/mcp_server_debug.log \
+    && chmod 777 /opt/google_workspace_mcp/mcp_server_debug.log
 
 # Set Chromium path for agent-browser
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
