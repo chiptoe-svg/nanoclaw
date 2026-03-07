@@ -304,7 +304,7 @@ ${html}
 </div>
 </body></html>`;
 
-async function createGoogleDoc(title: string, bodyHtml: string): Promise<string> {
+async function createGoogleDoc(title: string, bodyHtml: string, recipientEmail?: string): Promise<string> {
   const credsPath = path.join(os.homedir(), '.workspace-mcp/credentials/chiptoe1@gmail.com.json');
   const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
 
@@ -320,7 +320,17 @@ async function createGoogleDoc(title: string, bodyHtml: string): Promise<string>
     fields: 'id',
   });
 
-  return `https://docs.google.com/document/d/${res.data.id}/edit`;
+  const docId = res.data.id!;
+
+  if (recipientEmail) {
+    await drive.permissions.create({
+      fileId: docId,
+      sendNotificationEmail: true,
+      requestBody: { role: 'writer', type: 'user', emailAddress: recipientEmail },
+    });
+  }
+
+  return `https://docs.google.com/document/d/${docId}/edit`;
 }
 
 const app = express();
@@ -339,7 +349,7 @@ app.get('/api/skills', (_req, res) => {
 });
 
 app.post('/api/generate', async (req, res) => {
-  const { skill: skillId, inputs } = req.body as { skill: string; format: string; inputs: Record<string, string> };
+  const { skill: skillId, inputs, recipientEmail } = req.body as { skill: string; format: string; inputs: Record<string, string>; recipientEmail?: string };
   const skill = SKILLS.find((s) => s.id === skillId);
   if (!skill) { res.status(400).json({ error: 'Unknown skill' }); return; }
 
@@ -378,8 +388,9 @@ IMPORTANT: This is a QUICK REFERENCE format for use on a mobile device during a 
     }
 
     const title = `${skill.name} — ${new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}`;
-    const docUrl = await createGoogleDoc(title, bodyHtml);
-    res.json({ url: docUrl });
+    const email = recipientEmail?.trim() || undefined;
+    const docUrl = await createGoogleDoc(title, bodyHtml, email);
+    res.json({ url: docUrl, shared: !!email });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('Generation error:', msg);

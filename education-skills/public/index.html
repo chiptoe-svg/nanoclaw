@@ -81,9 +81,16 @@
   .modal-btn-secondary { flex: 1; padding: 13px; background: #f0ebe3; color: #555; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; min-height: 46px; }
   .modal-btn-secondary:hover { background: #e5ddd2; }
 
+  .recipient-bar { background: #f0ebe3; border-bottom: 1px solid #e0d8cc; padding: 10px 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .recipient-bar label { font-size: 13px; font-weight: 600; color: #555; white-space: nowrap; }
+  .recipient-bar input { flex: 1; min-width: 180px; padding: 8px 11px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; background: #fff; color: #2c2c2c; -webkit-appearance: none; }
+  .recipient-bar input:focus { outline: none; border-color: #8B7355; box-shadow: 0 0 0 3px rgba(139,115,85,0.12); }
+  .recipient-bar .hint { font-size: 12px; color: #999; white-space: nowrap; }
+
   @media (min-width: 600px) {
     header { padding: 22px 40px; }
     header h1 { font-size: 20px; }
+    .recipient-bar { padding: 10px 40px; }
     .container { padding: 32px 20px 60px; }
     .panel { padding: 32px; }
   }
@@ -95,6 +102,12 @@
   <h1>Montessori Skill Designer</h1>
   <p>Generate evidence-based lesson plans and environment designs</p>
 </header>
+
+<div class="recipient-bar">
+  <label for="recipient-email">Share full report with</label>
+  <input type="email" id="recipient-email" placeholder="recipient@example.com" autocomplete="email">
+  <span class="hint">optional — they'll get a Google Doc they can edit</span>
+</div>
 
 <div class="container">
   <div class="tabs" id="tabs"></div>
@@ -263,10 +276,12 @@ async function runGenerate(skillId, inputs, format) {
   status.innerHTML = `<span class="spinner"></span>${isBrief ? 'Building quick reference…' : 'Generating report — usually 20–40 seconds…'}`;
 
   try {
+    const recipientEmail = document.getElementById('recipient-email').value.trim();
+
     const res = await fetch('/api/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ skill: skillId, format, inputs }),
+      body: JSON.stringify({ skill: skillId, format, inputs, recipientEmail: recipientEmail || undefined }),
     });
 
     if (!res.ok) {
@@ -274,8 +289,13 @@ async function runGenerate(skillId, inputs, format) {
       throw new Error(err.error || 'Unknown error');
     }
 
-    const { url } = await res.json();
-    window.location.href = url;
+    const data = await res.json();
+    if (!isBrief && data.shared) {
+      status.className = 'status ok';
+      status.textContent = `✓ Google Doc created and shared with ${recipientEmail} — opening now…`;
+      await new Promise(r => setTimeout(r, 1200));
+    }
+    window.location.href = data.url;
     return;
   } catch (err) {
     status.className = 'status error';
