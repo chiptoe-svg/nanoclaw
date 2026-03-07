@@ -93,7 +93,7 @@
 
 <header>
   <h1>Montessori Skill Designer</h1>
-  <p>Generate evidence-based lesson plans and environment designs — delivered as PDF</p>
+  <p>Generate evidence-based lesson plans and environment designs</p>
 </header>
 
 <div class="container">
@@ -260,7 +260,7 @@ async function runGenerate(skillId, inputs, format) {
 
   btnFull.disabled = btnBrief.disabled = true;
   status.className = 'status loading';
-  status.innerHTML = `<span class="spinner"></span>${isBrief ? 'Building quick reference…' : 'Calling Claude and building your PDF — usually 20–40 seconds…'}`;
+  status.innerHTML = `<span class="spinner"></span>${isBrief ? 'Building quick reference…' : 'Generating report — usually 20–40 seconds…'}`;
 
   try {
     const res = await fetch('/api/generate', {
@@ -274,22 +274,9 @@ async function runGenerate(skillId, inputs, format) {
       throw new Error(err.error || 'Unknown error');
     }
 
-    if (isBrief) {
-      const { url } = await res.json();
-      window.location.href = url;
-      return;
-    }
-
-    const blob = await res.blob();
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `${skillId}-report.pdf`;
-    a.click();
-    URL.revokeObjectURL(url);
-
-    status.className = 'status ok';
-    status.textContent = '✓ Your full report has been downloaded.';
+    const { url } = await res.json();
+    window.location.href = url;
+    return;
   } catch (err) {
     status.className = 'status error';
     status.textContent = '✗ ' + err.message;

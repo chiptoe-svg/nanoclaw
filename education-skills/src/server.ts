@@ -1,9 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk';
 import express from 'express';
 import fs from 'fs';
+import { google } from 'googleapis';
 import { marked } from 'marked';
+import os from 'os';
 import path from 'path';
-import puppeteer from 'puppeteer';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -303,30 +304,24 @@ ${html}
 </div>
 </body></html>`;
 
-const pdfHtml = (html: string) => `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><style>
-  body { font-family: Georgia, serif; max-width: 740px; margin: 0 auto; padding: 36px 48px; color: #1e1e1e; line-height: 1.75; }
-  h1 { font-size: 24px; color: #1a1a2e; border-bottom: 2px solid #8B7355; padding-bottom: 10px; margin-top: 0; }
-  h2 { font-size: 18px; color: #1a1a2e; margin-top: 32px; border-left: 4px solid #8B7355; padding-left: 10px; }
-  h3 { font-size: 15px; color: #333; margin-top: 20px; }
-  p { margin: 10px 0; }
-  ul, ol { margin: 10px 0; padding-left: 22px; }
-  li { margin: 5px 0; }
-  strong { color: #111; }
-  table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 13px; }
-  th { background: #8B7355; color: #fff; padding: 9px 13px; text-align: left; }
-  td { padding: 8px 13px; border-bottom: 1px solid #e0d8cc; vertical-align: top; }
-  tr:nth-child(even) td { background: #f9f6f1; }
-  blockquote { border-left: 3px solid #8B7355; margin: 14px 0; padding: 6px 14px; background: #f9f6f1; color: #555; font-style: italic; }
-  code { background: #f0ede7; padding: 1px 5px; border-radius: 3px; font-size: 12px; font-family: monospace; }
-  pre { background: #f0ede7; padding: 12px; border-radius: 5px; overflow-x: auto; }
-  pre code { background: none; padding: 0; }
-  .meta { color: #999; font-size: 12px; margin-bottom: 28px; }
-  hr { border: none; border-top: 1px solid #e0d8cc; margin: 20px 0; }
-</style></head><body>
-<div class="meta">Montessori Alternative Approaches · ${new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
-${html}
-</body></html>`;
+async function createGoogleDoc(title: string, bodyHtml: string): Promise<string> {
+  const credsPath = path.join(os.homedir(), '.workspace-mcp/credentials/chiptoe1@gmail.com.json');
+  const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
+
+  const auth = new google.auth.OAuth2(creds.client_id, creds.client_secret);
+  auth.setCredentials({ refresh_token: creds.refresh_token, access_token: creds.token });
+
+  const drive = google.drive({ version: 'v3', auth });
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title></head><body>${bodyHtml}</body></html>`;
+
+  const res = await drive.files.create({
+    requestBody: { name: title, mimeType: 'application/vnd.google-apps.document' },
+    media: { mimeType: 'text/html', body: html },
+    fields: 'id',
+  });
+
+  return `https://docs.google.com/document/d/${res.data.id}/edit`;
+}
 
 const app = express();
 app.use(express.json());
@@ -382,16 +377,9 @@ IMPORTANT: This is a QUICK REFERENCE format for use on a mobile device during a 
       return;
     }
 
-    const fullHtml = pdfHtml(bodyHtml);
-    const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-    const page = await browser.newPage();
-    await page.setContent(fullHtml, { waitUntil: 'networkidle0' });
-    const pdf = await page.pdf({ format: 'A4', margin: { top: '14mm', bottom: '14mm', left: '12mm', right: '12mm' } });
-    await browser.close();
-
-    res.set('Content-Type', 'application/pdf');
-    res.set('Content-Disposition', `attachment; filename="${skillId}-${Date.now()}.pdf"`);
-    res.send(pdf);
+    const title = `${skill.name} — ${new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+    const docUrl = await createGoogleDoc(title, bodyHtml);
+    res.json({ url: docUrl });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('Generation error:', msg);
