@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Montessori Skill Designer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f1eb; color: #2c2c2c; min-height: 100vh; }
+
+  header { background: #1a1a2e; color: #fff; padding: 18px 20px; }
+  header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.2px; }
+  header p { color: #8a8aa0; font-size: 13px; margin-top: 3px; }
+
+  .container { max-width: 780px; margin: 0 auto; padding: 24px 16px 60px; }
+
+  /* Tabs — horizontal scroll on mobile, no wrapping */
+  .tabs { display: flex; gap: 8px; margin-bottom: 20px; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { flex-shrink: 0; background: #fff; border: 1.5px solid #ddd; border-radius: 7px; padding: 9px 14px; cursor: pointer; font-size: 13px; font-weight: 500; color: #555; transition: all 0.15s; white-space: nowrap; -webkit-tap-highlight-color: transparent; }
+  .tab:hover { border-color: #8B7355; color: #8B7355; }
+  .tab.active { background: #8B7355; border-color: #8B7355; color: #fff; }
+
+  .panel { display: none; background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); }
+  .panel.active { display: block; }
+  .panel-desc { color: #666; font-size: 13.5px; line-height: 1.65; margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid #f0ebe3; }
+
+  .field { margin-bottom: 16px; }
+  .field label { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #333; flex-wrap: wrap; }
+  .badge-required { color: #c0392b; font-size: 13px; line-height: 1; }
+  .badge-optional { background: #f0e8d8; color: #8B6914; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 10px; letter-spacing: 0.3px; text-transform: uppercase; }
+
+  .field input, .field textarea, .field select {
+    width: 100%; padding: 11px 13px; border: 1px solid #ddd; border-radius: 7px;
+    font-size: 15px; font-family: inherit; color: #2c2c2c; background: #fafaf8;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    -webkit-appearance: none; appearance: none;
+  }
+  .field input:focus, .field textarea:focus, .field select:focus {
+    outline: none; border-color: #8B7355; background: #fff; box-shadow: 0 0 0 3px rgba(139,115,85,0.12);
+  }
+  .field textarea { resize: vertical; min-height: 88px; line-height: 1.55; }
+  .field select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23888' d='M6 8L0 0h12z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 13px center; padding-right: 34px; }
+
+  .btn {
+    width: 100%; padding: 15px; background: #8B7355; color: #fff; border: none;
+    border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 10px;
+    transition: background 0.15s; min-height: 50px; -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .btn:hover { background: #7a6347; }
+  .btn:active { background: #6b5540; }
+  .btn:disabled { background: #c5b89a; cursor: not-allowed; }
+
+  .status { margin-top: 16px; padding: 14px 16px; border-radius: 8px; font-size: 14px; display: none; line-height: 1.55; }
+  .status.loading { background: #eef4fb; color: #2471a3; display: block; }
+  .status.error   { background: #fdeded; color: #c0392b; display: block; }
+  .status.ok      { background: #eafaf1; color: #1e8449; display: block; }
+
+  .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; margin-right: 7px; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Modal */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100; align-items: center; justify-content: center; padding: 20px; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: #fff; border-radius: 14px; padding: 28px 24px; max-width: 480px; width: 100%; max-height: 80vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.18); }
+  .modal h2 { font-size: 17px; color: #1a1a2e; margin-bottom: 8px; }
+  .modal p { font-size: 13.5px; color: #555; margin-bottom: 18px; line-height: 1.6; }
+  .modal-defaults { background: #f9f6f1; border-radius: 8px; padding: 14px 16px; margin-bottom: 20px; }
+  .modal-defaults .default-item { margin-bottom: 10px; }
+  .modal-defaults .default-item:last-child { margin-bottom: 0; }
+  .modal-defaults .default-label { font-size: 12px; font-weight: 700; color: #8B6914; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 2px; }
+  .modal-defaults .default-value { font-size: 13px; color: #333; line-height: 1.5; }
+  .modal-btns { display: flex; gap: 10px; }
+  .modal-btn-primary { flex: 1; padding: 13px; background: #8B7355; color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; min-height: 46px; }
+  .modal-btn-primary:hover { background: #7a6347; }
+  .modal-btn-secondary { flex: 1; padding: 13px; background: #f0ebe3; color: #555; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; min-height: 46px; }
+  .modal-btn-secondary:hover { background: #e5ddd2; }
+
+  @media (min-width: 600px) {
+    header { padding: 22px 40px; }
+    header h1 { font-size: 20px; }
+    .container { padding: 32px 20px 60px; }
+    .panel { padding: 32px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Montessori Skill Designer</h1>
+  <p>Generate evidence-based lesson plans and environment designs — delivered as PDF</p>
+</header>
+
+<div class="container">
+  <div class="tabs" id="tabs"></div>
+  <div id="panels"></div>
+</div>
+
+<!-- Defaults confirmation modal -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <h2>Some required fields are empty</h2>
+    <p>I've filled them with sensible defaults so you can see what a report looks like. You can proceed or go back and fill them in yourself.</p>
+    <div class="modal-defaults" id="modal-defaults"></div>
+    <div class="modal-btns">
+      <button class="modal-btn-primary" id="modal-proceed">Proceed with defaults</button>
+      <button class="modal-btn-secondary" id="modal-cancel">Let me fill it in</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let skills = [];
+let pendingSubmit = null; // { skillId, inputs } — set when modal is shown
+
+const DEFAULTS = {
+  'mixed-age-learning': {
+    age_groups: '6–7 year olds and 9–10 year olds',
+    subject: 'Mathematics — introduction to fractions',
+    objectives: 'Younger students: develop a foundational understanding of equal parts.\nOlder students: consolidate fraction concepts through explanation and demonstration.',
+  },
+  'prepared-environment': {
+    environment: 'A standard primary classroom with 24 desks in rows, teacher\'s desk at front, whiteboard, one bookshelf along the wall, plastic storage bins, and colourful paper displays covering most wall surfaces.',
+    goals: 'Increase student autonomy and reduce off-task behaviour by creating a calmer, more purposeful and ordered environment.',
+  },
+  'three-part-lesson': {
+    concept: 'The colour red',
+    materials: 'Three colour tablets: red, blue, and yellow (Montessori colour box)',
+  },
+  'work-cycle': {
+    time: '90 minutes',
+    age_group: '6–9 year olds (Year 1–3)',
+  },
+};
+
+async function init() {
+  const res = await fetch('/api/skills');
+  skills = await res.json();
+
+  const tabsEl   = document.getElementById('tabs');
+  const panelsEl = document.getElementById('panels');
+
+  const shortNames = {
+    'mixed-age-learning':   'Mixed-Age Learning',
+    'prepared-environment': 'Prepared Environment',
+    'three-part-lesson':    'Three-Part Lesson',
+    'work-cycle':           'Work Cycle',
+  };
+
+  skills.forEach((skill, i) => {
+    const tab = document.createElement('button');
+    tab.className = 'tab' + (i === 0 ? ' active' : '');
+    tab.textContent = shortNames[skill.id] || skill.name;
+    tab.onclick = () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('panel-' + skill.id).classList.add('active');
+    };
+    tabsEl.appendChild(tab);
+
+    const panel = document.createElement('div');
+    panel.id = 'panel-' + skill.id;
+    panel.className = 'panel' + (i === 0 ? ' active' : '');
+
+    const fieldsHtml = skill.fields.map(f => {
+      const badge = f.required
+        ? '<span class="badge-required">*</span>'
+        : '<span class="badge-optional">optional</span>';
+      let control;
+      if (f.type === 'textarea') {
+        control = `<textarea id="${skill.id}_${f.id}" name="${f.id}" placeholder="${f.placeholder || ''}"></textarea>`;
+      } else if (f.type === 'select') {
+        const opts = (f.options || []).map(o => `<option value="${o}">${o || '— select —'}</option>`).join('');
+        control = `<select id="${skill.id}_${f.id}" name="${f.id}">${opts}</select>`;
+      } else {
+        control = `<input type="text" id="${skill.id}_${f.id}" name="${f.id}" placeholder="${f.placeholder || ''}">`;
+      }
+      return `<div class="field"><label for="${skill.id}_${f.id}">${f.label} ${badge}</label>${control}</div>`;
+    }).join('');
+
+    panel.innerHTML = `
+      <p class="panel-desc">${skill.description}</p>
+      <form id="form-${skill.id}" onsubmit="handleSubmit(event,'${skill.id}')">
+        ${fieldsHtml}
+        <button type="submit" class="btn" id="btn-${skill.id}">Generate PDF Report →</button>
+        <div class="status" id="status-${skill.id}"></div>
+      </form>`;
+    panelsEl.appendChild(panel);
+  });
+
+  document.getElementById('modal-proceed').onclick = () => {
+    closeModal();
+    if (pendingSubmit) runGenerate(pendingSubmit.skillId, pendingSubmit.inputs);
+  };
+  document.getElementById('modal-cancel').onclick = closeModal;
+  document.getElementById('modal').onclick = (e) => { if (e.target === document.getElementById('modal')) closeModal(); };
+}
+
+function handleSubmit(e, skillId) {
+  e.preventDefault();
+  const skill  = skills.find(s => s.id === skillId);
+  const form   = document.getElementById('form-' + skillId);
+  const inputs = {};
+  new FormData(form).forEach((v, k) => { inputs[k] = String(v).trim(); });
+
+  const defs     = DEFAULTS[skillId] || {};
+  const required = skill.fields.filter(f => f.required);
+  const missing  = required.filter(f => !inputs[f.id]);
+
+  if (missing.length === 0) {
+    runGenerate(skillId, inputs);
+    return;
+  }
+
+  // Fill defaults for missing required fields
+  const applied = [];
+  missing.forEach(f => {
+    const defVal = defs[f.id];
+    if (defVal) {
+      inputs[f.id] = defVal;
+      // Also update the DOM so the user sees what was filled
+      const el = document.getElementById(skillId + '_' + f.id);
+      if (el) el.value = defVal;
+      applied.push({ label: f.label, value: defVal });
+    }
+  });
+
+  // Show modal
+  const defaultsEl = document.getElementById('modal-defaults');
+  defaultsEl.innerHTML = applied.map(a => `
+    <div class="default-item">
+      <div class="default-label">${a.label}</div>
+      <div class="default-value">${a.value.replace(/\n/g, '<br>')}</div>
+    </div>`).join('');
+
+  pendingSubmit = { skillId, inputs };
+  document.getElementById('modal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('open');
+  document.body.style.overflow = '';
+  pendingSubmit = null;
+}
+
+async function runGenerate(skillId, inputs) {
+  const btn    = document.getElementById('btn-' + skillId);
+  const status = document.getElementById('status-' + skillId);
+
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
+  status.className = 'status loading';
+  status.innerHTML = '<span class="spinner"></span>Calling Claude and building your PDF — usually 20–40 seconds…';
+
+  try {
+    const res = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ skill: skillId, inputs }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Unknown error');
+    }
+
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = skillId + '-report.pdf';
+    a.click();
+    URL.revokeObjectURL(url);
+
+    status.className = 'status ok';
+    status.textContent = '✓ Your PDF report has been downloaded.';
+  } catch (err) {
+    status.className = 'status error';
+    status.textContent = '✗ ' + err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Generate PDF Report →';
+  }
+}
+
+init();
+</script>
+</body>
+</html>
