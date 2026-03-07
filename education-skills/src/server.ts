@@ -251,26 +251,56 @@ ${i.context ? `\n**Classroom Context:**\n${i.context}` : ''}`,
   },
 ];
 
-const briefPdfHtml = (html: string) => `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><style>
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; max-width: 680px; margin: 0 auto; padding: 28px 36px; color: #1e1e1e; line-height: 1.6; font-size: 15px; }
-  h1 { font-size: 20px; color: #1a1a2e; border-bottom: 3px solid #8B7355; padding-bottom: 8px; margin-top: 0; margin-bottom: 6px; }
-  h2 { font-size: 15px; color: #fff; background: #8B7355; padding: 6px 12px; border-radius: 4px; margin-top: 20px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
-  h3 { font-size: 14px; color: #1a1a2e; margin-top: 14px; margin-bottom: 6px; }
-  p { margin: 8px 0; }
-  ul, ol { margin: 6px 0; padding-left: 20px; }
-  li { margin: 5px 0; line-height: 1.5; }
+// In-memory store for quick-ref pages { id -> { html, created } }
+const quickRefStore = new Map<string, { html: string; created: number }>();
+function purgeOldQuickRefs() {
+  const cutoff = Date.now() - 2 * 60 * 60 * 1000;
+  for (const [id, entry] of quickRefStore) {
+    if (entry.created < cutoff) quickRefStore.delete(id);
+  }
+}
+
+const briefWebHtml = (html: string) => `<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quick Reference · Montessori Skill Designer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f1eb; color: #2c2c2c; min-height: 100vh; }
+  .topbar { background: #1a1a2e; color: #fff; padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
+  .topbar a { color: #8a8aa0; font-size: 13px; text-decoration: none; flex-shrink: 0; }
+  .topbar a:hover { color: #fff; }
+  .topbar .title { font-size: 14px; font-weight: 600; flex: 1; }
+  .topbar .date { color: #8a8aa0; font-size: 12px; flex-shrink: 0; }
+  .content { max-width: 680px; margin: 0 auto; padding: 20px 16px 48px; }
+  h1 { font-size: 20px; color: #1a1a2e; border-bottom: 3px solid #8B7355; padding-bottom: 8px; margin-top: 0; margin-bottom: 8px; line-height: 1.3; }
+  h2 { font-size: 13px; color: #fff; background: #8B7355; padding: 6px 12px; border-radius: 5px; margin-top: 20px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+  h3 { font-size: 15px; color: #1a1a2e; margin-top: 16px; margin-bottom: 6px; }
+  p { margin: 8px 0; font-size: 15px; line-height: 1.6; }
+  ul, ol { margin: 8px 0; padding-left: 22px; }
+  li { margin: 6px 0; font-size: 15px; line-height: 1.55; }
   strong { color: #1a1a2e; }
   table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
-  th { background: #8B7355; color: #fff; padding: 7px 11px; text-align: left; }
-  td { padding: 7px 11px; border-bottom: 1px solid #e0d8cc; }
+  th { background: #8B7355; color: #fff; padding: 8px 10px; text-align: left; font-size: 13px; }
+  td { padding: 8px 10px; border-bottom: 1px solid #e0d8cc; vertical-align: top; font-size: 14px; }
   tr:nth-child(even) td { background: #f9f6f1; }
-  blockquote { border: 2px solid #8B7355; border-radius: 6px; margin: 14px 0; padding: 10px 14px; background: #f9f6f1; font-weight: 600; }
-  .meta { color: #999; font-size: 11px; margin-bottom: 16px; }
-  hr { border: none; border-top: 1px solid #e0d8cc; margin: 14px 0; }
-</style></head><body>
-<div class="meta">Quick Reference · Montessori Skill Designer · ${new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+  blockquote { border: 2px solid #8B7355; border-radius: 6px; margin: 14px 0; padding: 12px 14px; background: #f9f6f1; font-weight: 600; font-size: 15px; }
+  hr { border: none; border-top: 1px solid #e0d8cc; margin: 16px 0; }
+  @media (min-width: 600px) {
+    .content { padding: 28px 24px 60px; }
+    h1 { font-size: 22px; }
+  }
+</style>
+</head><body>
+<div class="topbar">
+  <a href="javascript:history.back()">← Back</a>
+  <span class="title">Quick Reference</span>
+  <span class="date">${new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+</div>
+<div class="content">
 ${html}
+</div>
 </body></html>`;
 
 const pdfHtml = (html: string) => `<!DOCTYPE html>
@@ -301,6 +331,13 @@ ${html}
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
+
+app.get('/quick-ref/:id', (req, res) => {
+  const entry = quickRefStore.get(req.params.id);
+  if (!entry) { res.status(404).send('Not found or expired.'); return; }
+  res.set('Content-Type', 'text/html');
+  res.send(entry.html);
+});
 
 app.get('/api/skills', (_req, res) => {
   res.json(SKILLS.map(({ id, name, description, fields }) => ({ id, name, description, fields })));
@@ -336,8 +373,16 @@ IMPORTANT: This is a QUICK REFERENCE format for use on a mobile device during a 
 
     const markdown = (message.content[0] as { type: 'text'; text: string }).text;
     const bodyHtml = await marked(markdown);
-    const fullHtml = format === 'brief' ? briefPdfHtml(bodyHtml) : pdfHtml(bodyHtml);
 
+    if (format === 'brief') {
+      purgeOldQuickRefs();
+      const id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      quickRefStore.set(id, { html: briefWebHtml(bodyHtml), created: Date.now() });
+      res.json({ url: `/quick-ref/${id}` });
+      return;
+    }
+
+    const fullHtml = pdfHtml(bodyHtml);
     const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
     const page = await browser.newPage();
     await page.setContent(fullHtml, { waitUntil: 'networkidle0' });
