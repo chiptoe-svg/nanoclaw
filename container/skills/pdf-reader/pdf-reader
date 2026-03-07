@@ -30,6 +30,43 @@ Extract options:
 USAGE
 }
 
+# OCR fallback: render PDF pages to PNG via pdftoppm, then OCR with tesseract.
+# Usage: _try_ocr <file> [first_page] [last_page]
+_try_ocr() {
+  local file="$1"
+  local first_page="${2:-}"
+  local last_page="${3:-}"
+
+  echo "Note: No extractable text found, attempting OCR..." >&2
+
+  local tmpdir
+  tmpdir="$(mktemp -d)"
+
+  local ppm_args=()
+  [[ -n "$first_page" ]] && ppm_args+=(-f "$first_page")
+  [[ -n "$last_page" ]]  && ppm_args+=(-l "$last_page")
+
+  if ! pdftoppm -png -r 300 ${ppm_args[@]+"${ppm_args[@]}"} "$file" "$tmpdir/page" 2>/dev/null; then
+    rm -rf "$tmpdir"
+    echo "Error: Failed to render PDF pages for OCR" >&2
+    return 1
+  fi
+
+  local ocr_found=false
+  for img in "$tmpdir"/page-*.png; do
+    [[ -f "$img" ]] || continue
+    ocr_found=true
+    tesseract "$img" stdout -l eng 2>/dev/null || true
+  done
+
+  rm -rf "$tmpdir"
+
+  if [[ "$ocr_found" == false ]]; then
+    echo "Error: No pages rendered for OCR" >&2
+    return 1
+  fi
+}
+
 cmd_extract() {
   local file=""
   local layout=false
@@ -92,7 +129,14 @@ cmd_extract() {
     args+=(-l "$last_page")
   fi
 
-  pdftotext ${args[@]+"${args[@]}"} "$file" -
+  local text
+  text="$(pdftotext ${args[@]+"${args[@]}"} "$file" -)" || true
+
+  if [[ -n "$(printf '%s' "$text" | tr -d '[:space:]')" ]]; then
+    printf '%s\n' "$text"
+  else
+    _try_ocr "$file" "$first_page" "$last_page"
+  fi
 }
 
 cmd_fetch() {
@@ -131,8 +175,15 @@ cmd_fetch() {
     echo "Saved to: $filename" >&2
   fi
 
-  # Extract with layout
-  pdftotext -layout "$tmpfile" -
+  # Extract with layout, fall back to OCR for scanned PDFs
+  local text
+  text="$(pdftotext -layout "$tmpfile" -)" || true
+
+  if [[ -n "$(printf '%s' "$text" | tr -d '[:space:]')" ]]; then
+    printf '%s\n' "$text"
+  else
+    _try_ocr "$tmpfile"
+  fi
 }
 
 cmd_info() {

@@ -25,6 +25,8 @@ RUN apt-get update && apt-get install -y \
     curl \
     git \
     poppler-utils \
+    tesseract-ocr \
+    tesseract-ocr-eng \
     python3 \
     python3-pip \
     python3-venv \

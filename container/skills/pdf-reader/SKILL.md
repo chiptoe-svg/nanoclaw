@@ -57,11 +57,20 @@ pdf-reader list
 
 Recursively lists all `.pdf` files with page count and file size.
 
-## WhatsApp PDF attachments
+## Scanned PDFs (OCR)
 
-When a user sends a PDF on WhatsApp, it is automatically saved to the `attachments/` directory. The message will include a path hint like:
+`extract` and `fetch` automatically fall back to OCR when `pdftotext` returns no text (e.g. scanned documents, image-only PDFs). Pages are rendered at 300 DPI via `pdftoppm` and processed with `tesseract` (English). No extra flags needed — it happens transparently.
 
-> [PDF attached: attachments/document.pdf]
+```bash
+pdf-reader extract attachments/scanned-invoice.pdf   # OCR kicks in automatically
+pdf-reader extract report.pdf --pages 1-3            # OCR respects page ranges too
+```
+
+## PDF attachments
+
+When a user sends a PDF via WhatsApp or Telegram, it is automatically saved to the `attachments/` directory. The message will include a path hint like:
+
+> [PDF: attachments/document.pdf]
 
 To read the attached PDF:
 

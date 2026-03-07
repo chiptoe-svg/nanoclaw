@@ -230,7 +230,7 @@ export class TelegramChannel implements Channel {
       });
     });
     this.bot.on('message:video', (ctx) => storeNonText(ctx, '[Video]'));
-    this.bot.on('message:voice', async (ctx) => {
+    const handleVoiceOrAudio = async (ctx: any) => {
       const chatJid = `tg:${ctx.chat.id}`;
       const group = this.opts.registeredGroups()[chatJid];
       if (!group) return;
@@ -252,7 +252,7 @@ export class TelegramChannel implements Channel {
         isGroup,
       );
 
-      let content = '[Voice message]';
+      let content = '[Voice message - transcription unavailable]';
 
       try {
         const file = await ctx.getFile();
@@ -261,13 +261,26 @@ export class TelegramChannel implements Channel {
         if (resp.ok) {
           const arrayBuf = await resp.arrayBuffer();
           const buffer = Buffer.from(arrayBuf);
+
+          // Save to attachments dir
+          const ext =
+            file.file_path?.split('.').pop() ||
+            (ctx.message.voice ? 'ogg' : 'mp3');
+          const filename = `voice-${ctx.message.message_id}.${ext}`;
+          const groupDir = path.join(GROUPS_DIR, group.folder);
+          const attachmentsDir = path.join(groupDir, 'attachments');
+          fs.mkdirSync(attachmentsDir, { recursive: true });
+          fs.writeFileSync(path.join(attachmentsDir, filename), buffer);
+
           const transcript = await transcribeWithWhisperCpp(buffer);
-          if (transcript && !transcript.startsWith('[Voice Message')) {
+          if (transcript) {
             content = `[Voice: ${transcript}]`;
             logger.info(
               { chatJid, length: transcript.length },
               'Transcribed Telegram voice message',
             );
+          } else {
+            logger.warn({ chatJid }, 'Whisper returned no transcript');
           }
         }
       } catch (err) {
@@ -283,11 +296,75 @@ export class TelegramChannel implements Channel {
         timestamp,
         is_from_me: false,
       });
-    });
-    this.bot.on('message:audio', (ctx) => storeNonText(ctx, '[Audio]'));
-    this.bot.on('message:document', (ctx) => {
-      const name = ctx.message.document?.file_name || 'file';
-      storeNonText(ctx, `[Document: ${name}]`);
+    };
+
+    this.bot.on('message:voice', handleVoiceOrAudio);
+    this.bot.on('message:audio', handleVoiceOrAudio);
+    this.bot.on('message:document', async (ctx) => {
+      const doc = ctx.message.document;
+      if (doc?.mime_type !== 'application/pdf') {
+        storeNonText(ctx, `[Document: ${doc?.file_name || 'file'}]`);
+        return;
+      }
+
+      const chatJid = `tg:${ctx.chat.id}`;
+      const group = this.opts.registeredGroups()[chatJid];
+      if (!group) return;
+
+      const timestamp = new Date(ctx.message.date * 1000).toISOString();
+      const senderName =
+        ctx.from?.first_name ||
+        ctx.from?.username ||
+        ctx.from?.id?.toString() ||
+        'Unknown';
+      const caption = ctx.message.caption || '';
+      const isGroup =
+        ctx.chat.type === 'group' || ctx.chat.type === 'supergroup';
+
+      this.opts.onChatMetadata(
+        chatJid,
+        timestamp,
+        undefined,
+        'telegram',
+        isGroup,
+      );
+
+      const filename = doc.file_name || `document-${ctx.message.message_id}.pdf`;
+      let content = caption
+        ? `[PDF: attachments/${filename}] ${caption}`
+        : `[PDF: attachments/${filename}]`;
+
+      try {
+        const file = await ctx.getFile();
+        const url = `https://api.telegram.org/file/bot${this.botToken}/${file.file_path}`;
+        const resp = await fetch(url);
+        if (resp.ok) {
+          const arrayBuf = await resp.arrayBuffer();
+          const buffer = Buffer.from(arrayBuf);
+          const groupDir = path.join(GROUPS_DIR, group.folder);
+          const attachmentsDir = path.join(groupDir, 'attachments');
+          fs.mkdirSync(attachmentsDir, { recursive: true });
+          fs.writeFileSync(path.join(attachmentsDir, filename), buffer);
+          logger.info(
+            { chatJid, filename },
+            'Saved Telegram PDF attachment',
+          );
+        } else {
+          logger.warn({ chatJid, status: resp.status }, 'Telegram PDF download failed');
+        }
+      } catch (err) {
+        logger.warn({ chatJid, err }, 'Telegram PDF download failed, continuing without attachment');
+      }
+
+      this.opts.onMessage(chatJid, {
+        id: ctx.message.message_id.toString(),
+        chat_jid: chatJid,
+        sender: ctx.from?.id?.toString() || '',
+        sender_name: senderName,
+        content,
+        timestamp,
+        is_from_me: false,
+      });
     });
     this.bot.on('message:sticker', (ctx) => {
       const emoji = ctx.message.sticker?.emoji || '';
