@@ -194,8 +194,8 @@ async function loadHistory() {
         </div>
         <div class="history-actions">
           <button class="history-btn history-btn-open" style="background:#e8f0e8;color:#2e5e2e" onclick="openOverview(this,'${r.id}')">Overview</button>
-          <a href="${r.docUrl}" target="_blank" class="history-btn history-btn-open">Doc</a>
-          <a href="/api/pdf/${r.id}" class="history-btn history-btn-open" style="background:#f0e8d8;color:#6b4f1e">PDF</a>
+          <a href="${r.docUrl}" target="_blank" class="history-btn history-btn-open">Open Google Doc</a>
+          <a href="/api/pdf/${r.id}" class="history-btn history-btn-open" style="background:#f0e8d8;color:#6b4f1e">Download PDF</a>
           <button class="history-btn history-btn-delete" onclick="deleteReport('${r.id}')">Delete</button>
         </div>
       </div>`).join('');
