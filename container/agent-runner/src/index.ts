@@ -471,6 +471,7 @@ async function runQuery(
         'TodoWrite', 'ToolSearch', 'Skill',
         'NotebookEdit',
         'mcp__nanoclaw__*',
+        'mcp__ollama__*',
         'mcp__workspace__*',
         'mcp__parallel-search__*',
         'mcp__parallel-task__*',
@@ -488,6 +489,10 @@ async function runQuery(
             NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
             NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
           },
+        },
+        ollama: {
+          command: 'node',
+          args: [path.join(path.dirname(mcpServerPath), 'ollama-mcp-stdio.js')],
         },
         workspace: {
           command: '/opt/google_workspace_mcp/.venv/bin/python',
