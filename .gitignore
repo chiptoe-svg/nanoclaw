@@ -39,3 +39,4 @@ agents-sdk-docs
 !groups/telegram_main/
 groups/telegram_main/*
 !groups/telegram_main/CLAUDE.md
+.claude/worktrees/
