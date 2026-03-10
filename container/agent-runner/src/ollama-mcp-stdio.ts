@@ -87,14 +87,16 @@ server.tool(
 
 server.tool(
   'ollama_generate',
-  'Send a prompt to a local Ollama model and get a response. Good for cheaper/faster tasks like summarization, translation, or general queries. Use ollama_list_models first to see available models.',
+  'Send a prompt to a local Ollama model and get a response. Good for cheaper/faster tasks like summarization, translation, or general queries. Supports multimodal models — pass image file paths in the images array for vision tasks. Use ollama_list_models first to see available models.',
   {
     model: z.string().describe('The model name (e.g., "llama3.2", "mistral", "gemma2")'),
     prompt: z.string().describe('The prompt to send to the model'),
     system: z.string().optional().describe('Optional system prompt to set model behavior'),
+    images: z.array(z.string()).optional().describe('Optional array of image file paths to send to a multimodal model. Each path is read and base64-encoded automatically.'),
   },
   async (args) => {
-    log(`>>> Generating with ${args.model} (${args.prompt.length} chars)...`);
+    const imageCount = args.images?.length || 0;
+    log(`>>> Generating with ${args.model} (${args.prompt.length} chars${imageCount ? `, ${imageCount} image(s)` : ''})...`);
     writeStatus('generating', `Generating with ${args.model}`);
     try {
       const body: Record<string, unknown> = {
@@ -104,6 +106,12 @@ server.tool(
       };
       if (args.system) {
         body.system = args.system;
+      }
+      if (args.images && args.images.length > 0) {
+        body.images = args.images.map(imgPath => {
+          const buf = fs.readFileSync(imgPath);
+          return buf.toString('base64');
+        });
       }
 
       const res = await ollamaFetch('/api/generate', {
