@@ -379,6 +379,29 @@ server.tool(
   },
 );
 
+server.tool(
+  'react_to_message',
+  'React to a message with an emoji. Reacts to the latest message by default, or a specific message by ID. Pass an empty string to remove a reaction.',
+  {
+    emoji: z.string().describe('Emoji to react with (e.g. "👍", "🔥", "❤️"). Empty string removes the reaction.'),
+    message_id: z.string().optional().describe('Message ID to react to. Omit to react to the latest message.'),
+  },
+  async (args) => {
+    const data = {
+      type: 'react_to_message',
+      chatJid,
+      emoji: args.emoji,
+      messageId: args.message_id || undefined,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    };
+
+    writeIpcFile(TASKS_DIR, data);
+
+    return { content: [{ type: 'text' as const, text: args.emoji ? `Reaction ${args.emoji} sent.` : 'Reaction removed.' }] };
+  },
+);
+
 // Start the stdio transport
 const transport = new StdioServerTransport();
 await server.connect(transport);
