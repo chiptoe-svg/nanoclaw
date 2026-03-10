@@ -235,7 +235,7 @@ describe('add-image-vision skill package', () => {
 
     it('passes imageAttachments to runAgent', () => {
       expect(content).toContain('imageAttachments');
-      expect(content).toMatch(/runAgent\(group,\s*prompt,\s*chatJid,\s*imageAttachments/);
+      expect(content).toMatch(/runAgent\(\s*group,\s*prompt,\s*chatJid,\s*imageAttachments/);
     });
 
     it('spreads imageAttachments into container input', () => {

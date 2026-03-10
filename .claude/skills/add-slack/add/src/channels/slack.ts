@@ -101,10 +101,9 @@ export class SlackChannel implements Channel {
       if (isBotMessage) {
         senderName = ASSISTANT_NAME;
       } else {
-        senderName =
-          (await this.resolveUserName(msg.user)) ||
-          msg.user ||
-          'unknown';
+        senderName = msg.user
+          ? (await this.resolveUserName(msg.user)) || msg.user
+          : 'unknown';
       }
 
       // Translate Slack <@UBOTID> mentions into TRIGGER_PATTERN format.
