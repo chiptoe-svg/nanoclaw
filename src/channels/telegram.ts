@@ -433,6 +433,12 @@ export class TelegramChannel implements Channel {
     // Start polling — returns a Promise that resolves when started
     return new Promise<void>((resolve) => {
       this.bot!.start({
+        allowed_updates: [
+          'message',
+          'message_reaction',
+          'message_reaction_count',
+          'callback_query',
+        ],
         onStart: (botInfo) => {
           logger.info(
             { username: botInfo.username, id: botInfo.id },
@@ -524,7 +530,12 @@ export class TelegramChannel implements Channel {
 
   async sendReaction(
     chatJid: string,
-    messageKey: { id: string; remoteJid: string; fromMe?: boolean; participant?: string },
+    messageKey: {
+      id: string;
+      remoteJid: string;
+      fromMe?: boolean;
+      participant?: string;
+    },
     emoji: string,
   ): Promise<void> {
     if (!this.bot) {
@@ -534,7 +545,10 @@ export class TelegramChannel implements Channel {
     const numericId = chatJid.replace(/^tg:/, '');
     const messageId = parseInt(messageKey.id);
     if (isNaN(messageId)) {
-      logger.warn({ chatJid, messageKey }, 'Invalid Telegram message ID for reaction');
+      logger.warn(
+        { chatJid, messageKey },
+        'Invalid Telegram message ID for reaction',
+      );
       return;
     }
     try {
@@ -544,7 +558,10 @@ export class TelegramChannel implements Channel {
         reaction: emoji ? [{ type: 'emoji', emoji }] : [],
       });
     } catch (err) {
-      logger.error({ chatJid, messageKey, emoji, err }, 'Failed to send Telegram reaction');
+      logger.error(
+        { chatJid, messageKey, emoji, err },
+        'Failed to send Telegram reaction',
+      );
     }
   }
 
