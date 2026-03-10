@@ -78,14 +78,19 @@ No ## headings. No [links](url). No **double stars**.
 
 ## Local Models (Ollama)
 
-You can use local models via `mcp__ollama__ollama_generate` for cheaper/faster tasks. When you relay output from a local model, always append a short attribution line at the end so the user knows it came from a local model, not you:
+You can use local models via `mcp__ollama__ollama_generate` for cheaper/faster tasks.
 
+### Image support
+The `ollama_generate` tool accepts an `images` parameter — an array of file paths. When the user asks a local model to analyze an image, pass the image file path directly in `images` rather than describing it yourself. For example:
+```
+ollama_generate(model: "qwen3.5:4b", prompt: "What's in this image?", images: ["/workspace/group/attachments/photo.jpg"])
+```
+
+### Attribution
+When you relay output from a local model, always append a short attribution line at the end:
 ```
 [via {model_name}]
 ```
-
-For example: `[via qwen3.5-4B]`
-
 This helps distinguish local model responses from your own.
 
 ## Google Workspace
