@@ -65,6 +65,17 @@ function createSchema(database: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_task_run_logs ON task_run_logs(task_id, run_at);
 
+    CREATE TABLE IF NOT EXISTS reactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id TEXT NOT NULL,
+      message_chat_jid TEXT NOT NULL,
+      reactor_jid TEXT NOT NULL,
+      reactor_name TEXT NOT NULL,
+      emoji TEXT NOT NULL,
+      timestamp TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_reactions_message ON reactions(message_id, message_chat_jid);
+
     CREATE TABLE IF NOT EXISTS router_state (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -647,6 +658,43 @@ export function pruneOldMessages(retentionDays: number): number {
     .run(cutoff);
   db.exec('VACUUM');
   return result.changes;
+}
+
+// --- Reaction accessors ---
+
+export interface ReactionEntry {
+  message_id: string;
+  message_chat_jid: string;
+  reactor_jid: string;
+  reactor_name: string;
+  emoji: string;
+  timestamp: string;
+}
+
+export function storeReaction(reaction: ReactionEntry): void {
+  db.prepare(
+    `INSERT INTO reactions (message_id, message_chat_jid, reactor_jid, reactor_name, emoji, timestamp)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(
+    reaction.message_id,
+    reaction.message_chat_jid,
+    reaction.reactor_jid,
+    reaction.reactor_name,
+    reaction.emoji,
+    reaction.timestamp,
+  );
+}
+
+export function getLatestMessage(
+  chatJid: string,
+): { id: string; fromMe: boolean } | undefined {
+  const row = db
+    .prepare(
+      `SELECT id, is_from_me FROM messages WHERE chat_jid = ? ORDER BY timestamp DESC LIMIT 1`,
+    )
+    .get(chatJid) as { id: string; is_from_me: number } | undefined;
+  if (!row) return undefined;
+  return { id: row.id, fromMe: row.is_from_me === 1 };
 }
 
 // --- JSON migration ---

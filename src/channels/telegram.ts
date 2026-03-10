@@ -4,6 +4,7 @@ import path from 'path';
 import { Bot, InputFile } from 'grammy';
 
 import { ASSISTANT_NAME, GROUPS_DIR, TRIGGER_PATTERN } from '../config.js';
+import { getLatestMessage, storeReaction } from '../db.js';
 import { readEnvFile } from '../env.js';
 import { processImage } from '../image.js';
 import { transcribeWithWhisperCpp } from '../transcription.js';
@@ -329,7 +330,8 @@ export class TelegramChannel implements Channel {
         isGroup,
       );
 
-      const filename = doc.file_name || `document-${ctx.message.message_id}.pdf`;
+      const filename =
+        doc.file_name || `document-${ctx.message.message_id}.pdf`;
       let content = caption
         ? `[PDF: attachments/${filename}] ${caption}`
         : `[PDF: attachments/${filename}]`;
@@ -345,15 +347,18 @@ export class TelegramChannel implements Channel {
           const attachmentsDir = path.join(groupDir, 'attachments');
           fs.mkdirSync(attachmentsDir, { recursive: true });
           fs.writeFileSync(path.join(attachmentsDir, filename), buffer);
-          logger.info(
-            { chatJid, filename },
-            'Saved Telegram PDF attachment',
-          );
+          logger.info({ chatJid, filename }, 'Saved Telegram PDF attachment');
         } else {
-          logger.warn({ chatJid, status: resp.status }, 'Telegram PDF download failed');
+          logger.warn(
+            { chatJid, status: resp.status },
+            'Telegram PDF download failed',
+          );
         }
       } catch (err) {
-        logger.warn({ chatJid, err }, 'Telegram PDF download failed, continuing without attachment');
+        logger.warn(
+          { chatJid, err },
+          'Telegram PDF download failed, continuing without attachment',
+        );
       }
 
       this.opts.onMessage(chatJid, {
@@ -372,6 +377,53 @@ export class TelegramChannel implements Channel {
     });
     this.bot.on('message:location', (ctx) => storeNonText(ctx, '[Location]'));
     this.bot.on('message:contact', (ctx) => storeNonText(ctx, '[Contact]'));
+
+    // Handle incoming emoji reactions
+    this.bot.on('message_reaction', async (ctx) => {
+      const chatId = `tg:${ctx.chat.id}`;
+      const groups = this.opts.registeredGroups();
+      if (!groups[chatId]) return;
+      const messageId = ctx.messageReaction.message_id.toString();
+      const reactorId =
+        ctx.messageReaction.user?.id?.toString() ||
+        ctx.messageReaction.actor_chat?.id?.toString() ||
+        'unknown';
+      const reactorName =
+        ctx.messageReaction.user?.username ||
+        ctx.messageReaction.user?.first_name ||
+        reactorId;
+
+      for (const reaction of ctx.messageReaction.new_reaction) {
+        if (reaction.type === 'emoji') {
+          storeReaction({
+            message_id: messageId,
+            message_chat_jid: chatId,
+            reactor_jid: `${reactorId}@telegram`,
+            reactor_name: reactorName,
+            emoji: reaction.emoji,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      }
+      // If a reaction was removed (in old but not in new), store with empty emoji
+      for (const reaction of ctx.messageReaction.old_reaction) {
+        if (
+          reaction.type === 'emoji' &&
+          !ctx.messageReaction.new_reaction.find(
+            (r) => r.type === 'emoji' && r.emoji === reaction.emoji,
+          )
+        ) {
+          storeReaction({
+            message_id: messageId,
+            message_chat_jid: chatId,
+            reactor_jid: `${reactorId}@telegram`,
+            reactor_name: reactorName,
+            emoji: '',
+            timestamp: new Date().toISOString(),
+          });
+        }
+      }
+    });
 
     // Handle errors gracefully
     this.bot.catch((err) => {
@@ -468,6 +520,45 @@ export class TelegramChannel implements Channel {
     } catch (err) {
       logger.error({ jid, err }, 'Failed to send Telegram document');
     }
+  }
+
+  async sendReaction(
+    chatJid: string,
+    messageKey: { id: string; remoteJid: string; fromMe?: boolean; participant?: string },
+    emoji: string,
+  ): Promise<void> {
+    if (!this.bot) {
+      logger.warn('Telegram bot not initialized');
+      return;
+    }
+    const numericId = chatJid.replace(/^tg:/, '');
+    const messageId = parseInt(messageKey.id);
+    if (isNaN(messageId)) {
+      logger.warn({ chatJid, messageKey }, 'Invalid Telegram message ID for reaction');
+      return;
+    }
+    try {
+      await (this.bot.api.raw as any).sendReaction({
+        chat_id: numericId,
+        message_id: messageId,
+        reaction: emoji ? [{ type: 'emoji', emoji }] : [],
+      });
+    } catch (err) {
+      logger.error({ chatJid, messageKey, emoji, err }, 'Failed to send Telegram reaction');
+    }
+  }
+
+  async reactToLatestMessage(chatJid: string, emoji: string): Promise<void> {
+    const latest = getLatestMessage(chatJid);
+    if (!latest) {
+      logger.warn({ chatJid }, 'No latest message found for Telegram reaction');
+      return;
+    }
+    await this.sendReaction(
+      chatJid,
+      { id: latest.id, remoteJid: chatJid, fromMe: latest.fromMe },
+      emoji,
+    );
   }
 
   isConnected(): boolean {

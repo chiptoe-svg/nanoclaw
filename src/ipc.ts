@@ -12,15 +12,16 @@ import { RegisteredGroup } from './types.js';
 
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
-  sendPhoto: (
-    jid: string,
-    filePath: string,
-    caption?: string,
-  ) => Promise<void>;
+  sendPhoto: (jid: string, filePath: string, caption?: string) => Promise<void>;
   sendDocument: (
     jid: string,
     filePath: string,
     caption?: string,
+  ) => Promise<void>;
+  sendReaction: (
+    jid: string,
+    messageKey: { id: string; remoteJid: string; fromMe?: boolean },
+    emoji: string,
   ) => Promise<void>;
   registeredGroups: () => Record<string, RegisteredGroup>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
@@ -223,6 +224,9 @@ export async function processTaskIpc(
     groupFolder?: string;
     chatJid?: string;
     targetJid?: string;
+    // For react_to_message
+    emoji?: string;
+    messageId?: string;
     // For register_group
     jid?: string;
     name?: string;
@@ -504,6 +508,27 @@ export async function processTaskIpc(
         logger.warn(
           { data },
           'Invalid register_group request - missing required fields',
+        );
+      }
+      break;
+
+    case 'react_to_message':
+      if (data.chatJid && data.emoji !== undefined) {
+        const targetGroup = registeredGroups[data.chatJid];
+        if (!isMain && (!targetGroup || targetGroup.folder !== sourceGroup)) {
+          logger.warn(
+            { chatJid: data.chatJid, sourceGroup },
+            'Unauthorized react_to_message attempt blocked',
+          );
+          break;
+        }
+        const messageKey = data.messageId
+          ? { id: data.messageId, remoteJid: data.chatJid }
+          : { id: '', remoteJid: data.chatJid };
+        await deps.sendReaction(data.chatJid, messageKey, data.emoji);
+        logger.info(
+          { chatJid: data.chatJid, emoji: data.emoji, sourceGroup },
+          'Reaction sent via IPC',
         );
       }
       break;
