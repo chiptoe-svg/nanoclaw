@@ -97,7 +97,12 @@ export interface Channel {
   // Optional: send an emoji reaction to a message.
   sendReaction?(
     jid: string,
-    messageKey: { id: string; remoteJid: string; fromMe?: boolean; participant?: string },
+    messageKey: {
+      id: string;
+      remoteJid: string;
+      fromMe?: boolean;
+      participant?: string;
+    },
     emoji: string,
   ): Promise<void>;
 }
