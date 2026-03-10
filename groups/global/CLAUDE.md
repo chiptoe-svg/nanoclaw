@@ -76,6 +76,18 @@ NEVER use markdown. Only use WhatsApp/Telegram formatting:
 
 No ## headings. No [links](url). No **double stars**.
 
+## Local Models (Ollama)
+
+You can use local models via `mcp__ollama__ollama_generate` for cheaper/faster tasks. When you relay output from a local model, always append a short attribution line at the end so the user knows it came from a local model, not you:
+
+```
+[via {model_name}]
+```
+
+For example: `[via qwen3.5-4B]`
+
+This helps distinguish local model responses from your own.
+
 ## Google Workspace
 
 You have access to Google Workspace via MCP tools (prefix: `mcp__workspace__`):
