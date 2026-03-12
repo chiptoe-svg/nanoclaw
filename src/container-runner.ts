@@ -228,10 +228,13 @@ function buildVolumeMounts(
 function readKeychainOauthToken(): string | undefined {
   if (process.platform !== 'darwin') return undefined;
   try {
-    const raw = execSync('security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null', {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    const raw = execSync(
+      'security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null',
+      {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    ).trim();
     const data = JSON.parse(raw);
     const token = data?.claudeAiOauth?.accessToken;
     return typeof token === 'string' && token ? token : undefined;
