@@ -2,7 +2,7 @@
  * Container Runner for NanoClaw
  * Spawns agent execution in containers and handles IPC
  */
-import { ChildProcess, exec, spawn } from 'child_process';
+import { ChildProcess, exec, execSync, spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -222,11 +222,32 @@ function buildVolumeMounts(
 }
 
 /**
+ * Read the Claude Code OAuth token from the macOS keychain.
+ * Returns undefined if not available or not on macOS.
+ */
+function readKeychainOauthToken(): string | undefined {
+  if (process.platform !== 'darwin') return undefined;
+  try {
+    const raw = execSync('security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null', {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    const data = JSON.parse(raw);
+    const token = data?.claudeAiOauth?.accessToken;
+    return typeof token === 'string' && token ? token : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Read allowed secrets from .env for passing to the container via stdin.
  * Secrets are never written to disk or mounted as files.
+ * If CLAUDE_CODE_OAUTH_TOKEN is not in .env, falls back to the macOS keychain.
+ * When an OAuth token is present, ANTHROPIC_API_KEY is excluded to avoid auth conflicts.
  */
 function readSecrets(): Record<string, string> {
-  return readEnvFile([
+  const secrets = readEnvFile([
     'CLAUDE_CODE_OAUTH_TOKEN',
     'ANTHROPIC_API_KEY',
     'ANTHROPIC_BASE_URL',
@@ -235,6 +256,21 @@ function readSecrets(): Record<string, string> {
     'GOOGLE_OAUTH_CLIENT_SECRET',
     'PARALLEL_API_KEY',
   ]);
+
+  // Fall back to keychain OAuth token if not explicitly set in .env
+  if (!secrets['CLAUDE_CODE_OAUTH_TOKEN']) {
+    const keychainToken = readKeychainOauthToken();
+    if (keychainToken) {
+      secrets['CLAUDE_CODE_OAUTH_TOKEN'] = keychainToken;
+    }
+  }
+
+  // Remove API key when OAuth token is present to avoid auth conflicts
+  if (secrets['CLAUDE_CODE_OAUTH_TOKEN']) {
+    delete secrets['ANTHROPIC_API_KEY'];
+  }
+
+  return secrets;
 }
 
 function buildContainerArgs(
