@@ -2,7 +2,7 @@
  * Container Runner for NanoClaw
  * Spawns agent execution in containers and handles IPC
  */
-import { ChildProcess, exec, execSync, spawn } from 'child_process';
+import { ChildProcess, exec, spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -11,19 +11,22 @@ import {
   CONTAINER_IMAGE,
   CONTAINER_MAX_OUTPUT_SIZE,
   CONTAINER_TIMEOUT,
+  CREDENTIAL_PROXY_PORT,
   DATA_DIR,
   GROUPS_DIR,
   IDLE_TIMEOUT,
   TIMEZONE,
 } from './config.js';
-import { readEnvFile } from './env.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
 import { logger } from './logger.js';
 import {
+  CONTAINER_HOST_GATEWAY,
   CONTAINER_RUNTIME_BIN,
+  hostGatewayArgs,
   readonlyMountArgs,
   stopContainer,
 } from './container-runtime.js';
+import { detectAuthMode } from './credential-proxy.js';
 import { validateAdditionalMounts } from './mount-security.js';
 import { RegisteredGroup } from './types.js';
 
@@ -39,8 +42,8 @@ export interface ContainerInput {
   isMain: boolean;
   isScheduledTask?: boolean;
   assistantName?: string;
-  secrets?: Record<string, string>;
   imageAttachments?: Array<{ relativePath: string; mediaType: string }>;
+
 }
 
 export interface ContainerOutput {
@@ -77,7 +80,7 @@ function buildVolumeMounts(
     });
 
     // Shadow .env so the agent cannot read secrets from the mounted project root.
-    // Secrets are passed via stdin instead (see readSecrets()).
+    // Credentials are injected by the credential proxy, never exposed to containers.
     const envFile = path.join(projectRoot, '.env');
     if (fs.existsSync(envFile)) {
       mounts.push({
@@ -221,61 +224,6 @@ function buildVolumeMounts(
   return mounts;
 }
 
-/**
- * Read the Claude Code OAuth token from the macOS keychain.
- * Returns undefined if not available or not on macOS.
- */
-function readKeychainOauthToken(): string | undefined {
-  if (process.platform !== 'darwin') return undefined;
-  try {
-    const raw = execSync(
-      'security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null',
-      {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-      },
-    ).trim();
-    const data = JSON.parse(raw);
-    const token = data?.claudeAiOauth?.accessToken;
-    return typeof token === 'string' && token ? token : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Read allowed secrets from .env for passing to the container via stdin.
- * Secrets are never written to disk or mounted as files.
- * If CLAUDE_CODE_OAUTH_TOKEN is not in .env, falls back to the macOS keychain.
- * When an OAuth token is present, ANTHROPIC_API_KEY is excluded to avoid auth conflicts.
- */
-function readSecrets(): Record<string, string> {
-  const secrets = readEnvFile([
-    'CLAUDE_CODE_OAUTH_TOKEN',
-    'ANTHROPIC_API_KEY',
-    'ANTHROPIC_BASE_URL',
-    'ANTHROPIC_AUTH_TOKEN',
-    'GOOGLE_OAUTH_CLIENT_ID',
-    'GOOGLE_OAUTH_CLIENT_SECRET',
-    'PARALLEL_API_KEY',
-  ]);
-
-  // Fall back to keychain OAuth token if not explicitly set in .env
-  if (!secrets['CLAUDE_CODE_OAUTH_TOKEN']) {
-    const keychainToken = readKeychainOauthToken();
-    if (keychainToken) {
-      secrets['CLAUDE_CODE_OAUTH_TOKEN'] = keychainToken;
-    }
-  }
-
-  // Remove API key when OAuth token is present to avoid auth conflicts
-  if (secrets['CLAUDE_CODE_OAUTH_TOKEN']) {
-    delete secrets['ANTHROPIC_API_KEY'];
-  }
-
-  return secrets;
-}
-
 function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
@@ -284,6 +232,26 @@ function buildContainerArgs(
 
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
+
+  // Route API traffic through the credential proxy (containers never see real secrets)
+  args.push(
+    '-e',
+    `ANTHROPIC_BASE_URL=http://${CONTAINER_HOST_GATEWAY}:${CREDENTIAL_PROXY_PORT}`,
+  );
+
+  // Mirror the host's auth method with a placeholder value.
+  // API key mode: SDK sends x-api-key, proxy replaces with real key.
+  // OAuth mode:   SDK exchanges placeholder token for temp API key,
+  //               proxy injects real OAuth token on that exchange request.
+  const authMode = detectAuthMode();
+  if (authMode === 'api-key') {
+    args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
+  } else {
+    args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
+  }
+
+  // Runtime-specific args for host gateway resolution
+  args.push(...hostGatewayArgs());
 
   // Run as host user so bind-mounted files are accessible.
   // Skip when running as root (uid 0), as the container's node user (uid 1000),
@@ -362,12 +330,8 @@ export async function runContainerAgent(
     let stdoutTruncated = false;
     let stderrTruncated = false;
 
-    // Pass secrets via stdin (never written to disk or mounted as files)
-    input.secrets = readSecrets();
     container.stdin.write(JSON.stringify(input));
     container.stdin.end();
-    // Remove secrets from input so they don't appear in logs
-    delete input.secrets;
 
     // Streaming output: parse OUTPUT_START/END marker pairs as they arrive
     let parseBuffer = '';
