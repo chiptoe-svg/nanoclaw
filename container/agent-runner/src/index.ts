@@ -482,6 +482,7 @@ async function runQuery(
             GOOGLE_OAUTH_CLIENT_SECRET: (sdkEnv.GOOGLE_OAUTH_CLIENT_SECRET as string) || '',
             WORKSPACE_MCP_CREDENTIALS_DIR: '/home/node/.workspace-mcp/credentials',
             OAUTHLIB_INSECURE_TRANSPORT: '1',
+            USER_GOOGLE_EMAIL: (sdkEnv.USER_GOOGLE_EMAIL as string) || '',
           },
         },
         ...(sdkEnv.PARALLEL_API_KEY ? {

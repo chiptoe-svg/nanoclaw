@@ -254,6 +254,7 @@ function buildContainerArgs(
   const extraSecrets = readEnvFile([
     'GOOGLE_OAUTH_CLIENT_ID',
     'GOOGLE_OAUTH_CLIENT_SECRET',
+    'USER_GOOGLE_EMAIL',
     'PARALLEL_API_KEY',
   ]);
   for (const [key, value] of Object.entries(extraSecrets)) {
