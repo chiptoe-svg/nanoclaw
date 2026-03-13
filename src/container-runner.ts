@@ -17,6 +17,7 @@ import {
   IDLE_TIMEOUT,
   TIMEZONE,
 } from './config.js';
+import { readEnvFile } from './env.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
 import { logger } from './logger.js';
 import {
@@ -43,7 +44,6 @@ export interface ContainerInput {
   isScheduledTask?: boolean;
   assistantName?: string;
   imageAttachments?: Array<{ relativePath: string; mediaType: string }>;
-
 }
 
 export interface ContainerOutput {
@@ -248,6 +248,16 @@ function buildContainerArgs(
     args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
   } else {
     args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
+  }
+
+  // Pass non-Anthropic secrets that the credential proxy does not handle
+  const extraSecrets = readEnvFile([
+    'GOOGLE_OAUTH_CLIENT_ID',
+    'GOOGLE_OAUTH_CLIENT_SECRET',
+    'PARALLEL_API_KEY',
+  ]);
+  for (const [key, value] of Object.entries(extraSecrets)) {
+    args.push('-e', `${key}=${value}`);
   }
 
   // Runtime-specific args for host gateway resolution
