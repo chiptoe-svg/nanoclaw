@@ -9,9 +9,12 @@
  *             API key via /api/oauth/claude_cli/create_api_key.
  *             Proxy injects real OAuth token on that exchange request;
  *             subsequent requests carry the temp key which is valid as-is.
+ *
+ * OAuth tokens expire (~1 hour). The proxy auto-refreshes them using the
+ * stored refresh token before they expire, so agents never see 401s.
  */
 import { execSync } from 'child_process';
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync } from 'fs';
 import { createServer, Server } from 'http';
 import { request as httpsRequest } from 'https';
 import { request as httpRequest, RequestOptions } from 'http';
@@ -21,17 +24,29 @@ import { join } from 'path';
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
 
+const OAUTH_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
+const OAUTH_TOKEN_ENDPOINT = 'https://platform.claude.com/v1/oauth/token';
+/** Refresh the token this many ms before it actually expires. */
+const REFRESH_BUFFER_MS = 5 * 60 * 1000;
+
+interface OAuthCredentials {
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt?: number;
+  [key: string]: unknown;
+}
+
 /**
- * Read the Claude Code OAuth token from ~/.claude/.credentials.json
+ * Read the full OAuth credential object from ~/.claude/.credentials.json
  * or fall back to the macOS keychain.
  */
-function readKeychainOauthToken(): string | undefined {
-  // Primary: read from credentials file (written by Claude Code CLI)
+function readFullOAuthCredentials(): OAuthCredentials | undefined {
+  // Primary: credentials file written by Claude Code CLI
   try {
     const credPath = join(homedir(), '.claude', '.credentials.json');
     const data = JSON.parse(readFileSync(credPath, 'utf8'));
-    const token = data?.claudeAiOauth?.accessToken;
-    if (typeof token === 'string' && token) return token;
+    const oauth = data?.claudeAiOauth;
+    if (oauth?.accessToken) return oauth as OAuthCredentials;
   } catch {
     // fall through to keychain
   }
@@ -41,17 +56,110 @@ function readKeychainOauthToken(): string | undefined {
   try {
     const raw = execSync(
       'security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null',
-      {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-      },
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
     ).trim();
     const data = JSON.parse(raw);
-    const token = data?.claudeAiOauth?.accessToken;
-    return typeof token === 'string' && token ? token : undefined;
+    const oauth = data?.claudeAiOauth;
+    if (oauth?.accessToken) return oauth as OAuthCredentials;
   } catch {
-    return undefined;
+    // not available
   }
+
+  return undefined;
+}
+
+/**
+ * Persist refreshed OAuth credentials back to ~/.claude/.credentials.json
+ * so the next process restart picks up the new token.
+ */
+function saveOAuthCredentials(updated: OAuthCredentials): void {
+  const credPath = join(homedir(), '.claude', '.credentials.json');
+  try {
+    let root: Record<string, unknown> = {};
+    try {
+      root = JSON.parse(readFileSync(credPath, 'utf8'));
+    } catch {
+      // file missing — start fresh
+    }
+    root.claudeAiOauth = { ...(root.claudeAiOauth as object ?? {}), ...updated };
+    writeFileSync(credPath, JSON.stringify(root, null, 2));
+  } catch (err) {
+    logger.warn({ err }, 'Failed to persist refreshed OAuth token');
+  }
+}
+
+/**
+ * Exchange a refresh token for a new access token.
+ * Returns the updated credentials, or undefined on failure.
+ */
+function refreshOAuthToken(
+  refreshToken: string,
+): Promise<OAuthCredentials | undefined> {
+  return new Promise((resolve) => {
+    const body = new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: OAUTH_CLIENT_ID,
+    }).toString();
+
+    const req = httpsRequest(
+      {
+        hostname: 'platform.claude.com',
+        port: 443,
+        path: '/v1/oauth/token',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Length': Buffer.byteLength(body),
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () => {
+          try {
+            const data = JSON.parse(Buffer.concat(chunks).toString());
+            if (data.access_token) {
+              const creds: OAuthCredentials = {
+                accessToken: data.access_token,
+                refreshToken: data.refresh_token ?? refreshToken,
+                expiresAt: data.expires_in
+                  ? Date.now() + data.expires_in * 1000
+                  : undefined,
+              };
+              logger.info('OAuth token refreshed successfully');
+              resolve(creds);
+            } else {
+              logger.error(
+                { status: res.statusCode, data },
+                'OAuth token refresh returned no access_token',
+              );
+              resolve(undefined);
+            }
+          } catch (err) {
+            logger.error({ err }, 'Failed to parse OAuth refresh response');
+            resolve(undefined);
+          }
+        });
+      },
+    );
+
+    req.on('error', (err) => {
+      logger.error({ err }, 'OAuth token refresh request failed');
+      resolve(undefined);
+    });
+
+    req.write(body);
+    req.end();
+  });
+}
+
+/**
+ * Read the Claude Code OAuth token from ~/.claude/.credentials.json
+ * or fall back to the macOS keychain.
+ */
+function readKeychainOauthToken(): string | undefined {
+  return readFullOAuthCredentials()?.accessToken;
 }
 
 export type AuthMode = 'api-key' | 'oauth';
@@ -73,16 +181,72 @@ export function startCredentialProxy(
 
   const authMode: AuthMode = secrets.ANTHROPIC_API_KEY ? 'api-key' : 'oauth';
 
-  // Cache the token with a short TTL so refreshes are picked up without restart
-  // but file I/O doesn't happen on every proxied request.
-  const TOKEN_CACHE_TTL_MS = 30_000;
-  let tokenCache: { value?: string; expiresAt: number } = { expiresAt: 0 };
-  const getOauthToken = (): string | undefined => {
+  // Token cache: tracks the current access token AND its real expiry time.
+  // When the token is within REFRESH_BUFFER_MS of expiry we trigger a refresh.
+  const TOKEN_CACHE_TTL_MS = 30_000; // re-read from disk every 30 s at most
+  interface TokenCache {
+    value?: string;
+    /** Wall-clock expiry of the cache entry (not the token itself). */
+    cacheExpiresAt: number;
+    /** Real expiry of the OAuth token, if known. */
+    tokenExpiresAt?: number;
+  }
+  let tokenCache: TokenCache = { cacheExpiresAt: 0 };
+  let refreshPromise: Promise<void> | null = null;
+
+  const ensureTokenFresh = async (): Promise<void> => {
+    if (refreshPromise) return refreshPromise;
+
+    const now = Date.now();
+    const tokenExpiry = tokenCache.tokenExpiresAt;
+    if (tokenExpiry !== undefined && now >= tokenExpiry - REFRESH_BUFFER_MS) {
+      // Token is expired or about to expire — refresh it.
+      const creds = readFullOAuthCredentials();
+      if (creds?.refreshToken) {
+        refreshPromise = (async () => {
+          const updated = await refreshOAuthToken(creds.refreshToken!);
+          if (updated) {
+            saveOAuthCredentials(updated);
+            tokenCache = {
+              value: updated.accessToken,
+              cacheExpiresAt: now + TOKEN_CACHE_TTL_MS,
+              tokenExpiresAt: updated.expiresAt,
+            };
+          }
+          refreshPromise = null;
+        })();
+        return refreshPromise;
+      }
+    }
+  };
+
+  const getOauthToken = async (): Promise<string | undefined> => {
     if (secrets.CLAUDE_CODE_OAUTH_TOKEN) return secrets.CLAUDE_CODE_OAUTH_TOKEN;
     if (secrets.ANTHROPIC_AUTH_TOKEN) return secrets.ANTHROPIC_AUTH_TOKEN;
+
     const now = Date.now();
-    if (now < tokenCache.expiresAt) return tokenCache.value;
-    tokenCache = { value: readKeychainOauthToken(), expiresAt: now + TOKEN_CACHE_TTL_MS };
+
+    // Check if we need to refresh (expired or near-expiry).
+    await ensureTokenFresh();
+
+    // Re-read from disk if cache TTL elapsed.
+    if (now >= tokenCache.cacheExpiresAt) {
+      const creds = readFullOAuthCredentials();
+      tokenCache = {
+        value: creds?.accessToken,
+        cacheExpiresAt: now + TOKEN_CACHE_TTL_MS,
+        tokenExpiresAt: creds?.expiresAt,
+      };
+      // If still expired after re-read, trigger a refresh now.
+      if (
+        creds?.refreshToken &&
+        creds.expiresAt !== undefined &&
+        now >= creds.expiresAt - REFRESH_BUFFER_MS
+      ) {
+        await ensureTokenFresh();
+      }
+    }
+
     return tokenCache.value;
   };
 
@@ -96,7 +260,7 @@ export function startCredentialProxy(
     const server = createServer((req, res) => {
       const chunks: Buffer[] = [];
       req.on('data', (c) => chunks.push(c));
-      req.on('end', () => {
+      req.on('end', async () => {
         const body = Buffer.concat(chunks);
         const headers: Record<string, string | number | string[] | undefined> =
           {
@@ -121,7 +285,7 @@ export function startCredentialProxy(
           // x-api-key only, so they pass through without token injection.
           if (headers['authorization']) {
             delete headers['authorization'];
-            const token = getOauthToken();
+            const token = await getOauthToken();
             if (token) {
               headers['authorization'] = `Bearer ${token}`;
             }
