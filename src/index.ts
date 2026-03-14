@@ -152,6 +152,33 @@ export function _setRegisteredGroups(
 }
 
 /**
+ * Read and consume the AI bridge inbox for a group folder.
+ * Prepends the inbox content to the prompt and appends to comms.log.
+ * Returns the (possibly modified) prompt.
+ */
+function injectInboxMessage(groupFolder: string, groupName: string, prompt: string): string {
+  const logsDir = path.join(GROUPS_DIR, groupFolder, 'logs');
+  const inboxPath = path.join(logsDir, 'agent-inbox.log');
+  const commsLogPath = path.join(logsDir, 'comms.log');
+  try {
+    const inbox = fs.readFileSync(inboxPath, 'utf-8').trim();
+    if (inbox) {
+      fs.writeFileSync(inboxPath, '');
+      fs.mkdirSync(logsDir, { recursive: true });
+      fs.appendFileSync(
+        commsLogPath,
+        `[${new Date().toISOString()}] → AGENT: ${inbox}\n`,
+      );
+      logger.info({ group: groupName }, 'Injected Claude Code inbox message into prompt');
+      return `[Message from Claude Code]\n${inbox}\n[End of Claude Code message]\n\n${prompt}`;
+    }
+  } catch {
+    // No inbox or unreadable — normal case
+  }
+  return prompt;
+}
+
+/**
  * Process all pending messages for a group.
  * Called by the GroupQueue when it's this group's turn.
  */
@@ -189,23 +216,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   let prompt = formatMessages(missedMessages, TIMEZONE);
   const imageAttachments = parseImageReferences(missedMessages);
-
-  // AI Bridge: inject any pending Claude Code → agent messages into the prompt
-  const logsDir = path.join(GROUPS_DIR, group.folder, 'logs');
-  const inboxPath = path.join(logsDir, 'agent-inbox.log');
-  const commsLogPath = path.join(logsDir, 'comms.log');
-  try {
-    const inbox = fs.readFileSync(inboxPath, 'utf-8').trim();
-    if (inbox) {
-      prompt = `[Message from Claude Code]\n${inbox}\n[End of Claude Code message]\n\n${prompt}`;
-      fs.writeFileSync(inboxPath, '');
-      fs.mkdirSync(logsDir, { recursive: true });
-      fs.appendFileSync(commsLogPath, `[${new Date().toISOString()}] → AGENT: ${inbox}\n`);
-      logger.info({ group: group.name }, 'Injected Claude Code inbox message into prompt');
-    }
-  } catch {
-    // No inbox or unreadable — normal case
-  }
+  prompt = injectInboxMessage(group.folder, group.name, prompt);
 
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
   // these messages. Save the old cursor so we can roll back on error.
@@ -467,7 +478,11 @@ async function startMessageLoop(): Promise<void> {
           );
           const messagesToSend =
             allPending.length > 0 ? allPending : groupMessages;
-          const formatted = formatMessages(messagesToSend, TIMEZONE);
+          const formatted = injectInboxMessage(
+            group.folder,
+            group.name,
+            formatMessages(messagesToSend, TIMEZONE),
+          );
 
           if (queue.sendMessage(chatJid, formatted)) {
             logger.debug(
