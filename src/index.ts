@@ -48,7 +48,7 @@ import {
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
-import { findChannel, formatMessages, formatOutbound } from './router.js';
+import { findChannel, formatMessages, formatOutbound, stripInternalTags } from './router.js';
 import {
   isSenderAllowed,
   isTriggerAllowed,
@@ -227,7 +227,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             ? result.result
             : JSON.stringify(result.result);
         // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-        const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+        const text = stripInternalTags(raw);
         logger.info(
           { group: group.name },
           `Agent output: ${raw.slice(0, 200)}`,

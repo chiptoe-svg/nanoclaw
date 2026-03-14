@@ -2,7 +2,7 @@ import { ChildProcess } from 'child_process';
 import { CronExpressionParser } from 'cron-parser';
 import fs from 'fs';
 
-import { ASSISTANT_NAME, SCHEDULER_POLL_INTERVAL, TIMEZONE } from './config.js';
+import { ASSISTANT_NAME, SCHEDULER_POLL_INTERVAL, TASK_CLOSE_DELAY_MS, TIMEZONE } from './config.js';
 import {
   ContainerOutput,
   runContainerAgent,
@@ -11,7 +11,6 @@ import {
 import {
   getAllTasks,
   getDueTasks,
-  getTaskById,
   logTaskRun,
   updateTask,
   updateTaskAfterRun,
@@ -157,7 +156,6 @@ async function runTask(
   // After the task produces a result, close the container promptly.
   // Tasks are single-turn — no need to wait IDLE_TIMEOUT (30 min) for the
   // query loop to time out. A short delay handles any final MCP calls.
-  const TASK_CLOSE_DELAY_MS = 10000;
   let closeTimer: ReturnType<typeof setTimeout> | null = null;
 
   const scheduleClose = () => {
@@ -256,14 +254,9 @@ export function startSchedulerLoop(deps: SchedulerDependencies): void {
       }
 
       for (const task of dueTasks) {
-        // Re-check task status in case it was paused/cancelled
-        const currentTask = getTaskById(task.id);
-        if (!currentTask || currentTask.status !== 'active') {
-          continue;
-        }
-
-        deps.queue.enqueueTask(currentTask.chat_jid, currentTask.id, () =>
-          runTask(currentTask, deps),
+        if (task.status !== 'active') continue;
+        deps.queue.enqueueTask(task.chat_jid, task.id, () =>
+          runTask(task, deps),
         );
       }
     } catch (err) {

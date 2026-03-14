@@ -73,11 +73,18 @@ export function startCredentialProxy(
 
   const authMode: AuthMode = secrets.ANTHROPIC_API_KEY ? 'api-key' : 'oauth';
 
-  // Read OAuth token lazily so refreshed tokens are picked up without restart
-  const getOauthToken = () =>
-    secrets.CLAUDE_CODE_OAUTH_TOKEN ||
-    secrets.ANTHROPIC_AUTH_TOKEN ||
-    readKeychainOauthToken();
+  // Cache the token with a short TTL so refreshes are picked up without restart
+  // but file I/O doesn't happen on every proxied request.
+  const TOKEN_CACHE_TTL_MS = 30_000;
+  let tokenCache: { value?: string; expiresAt: number } = { expiresAt: 0 };
+  const getOauthToken = (): string | undefined => {
+    if (secrets.CLAUDE_CODE_OAUTH_TOKEN) return secrets.CLAUDE_CODE_OAUTH_TOKEN;
+    if (secrets.ANTHROPIC_AUTH_TOKEN) return secrets.ANTHROPIC_AUTH_TOKEN;
+    const now = Date.now();
+    if (now < tokenCache.expiresAt) return tokenCache.value;
+    tokenCache = { value: readKeychainOauthToken(), expiresAt: now + TOKEN_CACHE_TTL_MS };
+    return tokenCache.value;
+  };
 
   const upstreamUrl = new URL(
     secrets.ANTHROPIC_BASE_URL || 'https://api.anthropic.com',

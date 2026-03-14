@@ -15,6 +15,7 @@ export const ASSISTANT_HAS_OWN_NUMBER =
     envConfig.ASSISTANT_HAS_OWN_NUMBER) === 'true';
 export const POLL_INTERVAL = 2000;
 export const SCHEDULER_POLL_INTERVAL = 60000;
+export const TASK_CLOSE_DELAY_MS = 10_000; // how long to wait after task result before closing container
 
 // Absolute paths needed for container mounts
 const PROJECT_ROOT = process.cwd();

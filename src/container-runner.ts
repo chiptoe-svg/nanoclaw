@@ -156,7 +156,9 @@ function buildVolumeMounts(
       const srcDir = path.join(skillsSrc, skillDir);
       if (!fs.statSync(srcDir).isDirectory()) continue;
       const dstDir = path.join(skillsDst, skillDir);
-      fs.cpSync(srcDir, dstDir, { recursive: true });
+      if (!fs.existsSync(dstDir)) {
+        fs.cpSync(srcDir, dstDir, { recursive: true });
+      }
     }
   }
   mounts.push({
@@ -280,6 +282,10 @@ function buildContainerArgs(
   args.push(CONTAINER_IMAGE);
 
   return args;
+}
+
+function logTimestamp(): string {
+  return new Date().toISOString().replace(/[:.]/g, '-');
 }
 
 export async function runContainerAgent(
@@ -461,7 +467,7 @@ export async function runContainerAgent(
       const duration = Date.now() - startTime;
 
       if (timedOut) {
-        const ts = new Date().toISOString().replace(/[:.]/g, '-');
+        const ts = logTimestamp();
         const timeoutLog = path.join(logsDir, `container-${ts}.log`);
         fs.writeFileSync(
           timeoutLog,
@@ -507,7 +513,7 @@ export async function runContainerAgent(
         return;
       }
 
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const timestamp = logTimestamp();
       const logFile = path.join(logsDir, `container-${timestamp}.log`);
       const isVerbose =
         process.env.LOG_LEVEL === 'debug' || process.env.LOG_LEVEL === 'trace';
