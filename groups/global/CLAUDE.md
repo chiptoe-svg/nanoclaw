@@ -78,7 +78,7 @@ No ## headings. No [links](url). No **double stars**.
 
 ## Local Models (Ollama)
 
-You can use local models via `mcp__ollama__ollama_generate` for cheaper/faster tasks.
+You can use local models via `mcp__ollama__ollama_generate` when specifically asked to.
 
 ### Image support
 The `ollama_generate` tool accepts an `images` parameter — an array of file paths. When the user asks a local model to analyze an image, pass the image file path directly in `images` rather than describing it yourself. For example:
@@ -95,18 +95,35 @@ This helps distinguish local model responses from your own.
 
 ## Google Workspace
 
-You have access to Google Workspace via MCP tools (prefix: `mcp__workspace__`):
-- *Gmail*: search, read, send, draft, manage labels (`gmail_search`, `gmail_read`, `gmail_send`, `gmail_draft`)
-- *Calendar*: list events, create/update/delete, find free time (`list_calendars`, `get_events`, `create_event`)
-- *Drive*: search, read, create, share files (`drive_search_files`, `drive_read_file`, `drive_create_file`)
-- *Docs*: create, read, edit documents (`create_doc`, `read_doc`, `update_doc`)
-- *Sheets*: create, read, update spreadsheets (`create_spreadsheet`, `read_spreadsheet`, `update_spreadsheet`)
-- *Slides*: create, update presentations (`create_presentation`, `update_presentation`)
-- *Forms*: create forms, read responses (`create_form`, `get_form_responses`)
-- *Tasks*: list, create, update, delete tasks (`list_tasks`, `create_task`, `update_task`)
-- *Contacts*: search and manage contacts (`search_contacts`, `get_contact`)
-- *Chat*: send messages, list spaces (`send_chat_message`, `list_spaces`)
-- *Apps Script*: run scripts, manage projects (`run_script_function`, `list_script_projects`)
-- *Search*: Google Custom Search (`search_google`)
+You have access to Google Workspace via the `gws` CLI (Bash tool). The authenticated account is chiptoe1@gmail.com.
 
-The authenticated Google account is chiptoe1@gmail.com.
+```bash
+# Gmail
+gws gmail users messages list --params '{"userId":"me","q":"is:unread","maxResults":10}'
+gws gmail users messages send --params '{"userId":"me"}' --json '{"raw":"<base64-encoded-RFC2822>"}'
+
+# Calendar
+gws calendar events list --params '{"calendarId":"primary","timeMin":"2026-03-13T00:00:00Z","maxResults":10}'
+gws calendar events insert --params '{"calendarId":"primary"}' --json '{"summary":"Meeting","start":{"dateTime":"..."},"end":{"dateTime":"..."}}'
+
+# Drive
+gws drive files list --params '{"pageSize":10,"q":"name contains '\''report'\''"}'
+gws drive files get --params '{"fileId":"FILE_ID","alt":"media"}'
+
+# Docs / Sheets / Slides
+gws docs documents get --params '{"documentId":"DOC_ID"}'
+gws sheets spreadsheets values get --params '{"spreadsheetId":"ID","range":"Sheet1!A1:Z100"}'
+
+# Tasks
+gws tasks tasklists list
+gws tasks tasks list --params '{"tasklist":"@default"}'
+gws tasks tasks insert --params '{"tasklist":"@default"}' --json '{"title":"Buy milk","due":"2026-03-14T00:00:00Z"}'
+
+# Contacts
+gws people people searchContacts --params '{"query":"John","readMask":"names,emailAddresses"}'
+
+# Introspect any method
+gws schema gmail.users.messages.list
+```
+
+Use `--page-all` to auto-paginate. Use `--dry-run` to preview without executing. Run `gws <service> --help` to discover all available methods.

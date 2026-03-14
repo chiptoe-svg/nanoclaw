@@ -201,13 +201,13 @@ function buildVolumeMounts(
     readonly: false,
   });
 
-  // Google Workspace MCP credentials
-  const workspaceDir = path.join(os.homedir(), '.workspace-mcp');
-  if (fs.existsSync(workspaceDir)) {
+  // Google Workspace CLI credentials
+  const gwsConfigDir = path.join(os.homedir(), '.config', 'gws');
+  if (fs.existsSync(gwsConfigDir)) {
     mounts.push({
-      hostPath: workspaceDir,
-      containerPath: '/home/node/.workspace-mcp',
-      readonly: false,
+      hostPath: gwsConfigDir,
+      containerPath: '/home/node/.config/gws',
+      readonly: true,
     });
   }
 
@@ -252,9 +252,6 @@ function buildContainerArgs(
 
   // Pass non-Anthropic secrets that the credential proxy does not handle
   const extraSecrets = readEnvFile([
-    'GOOGLE_OAUTH_CLIENT_ID',
-    'GOOGLE_OAUTH_CLIENT_SECRET',
-    'USER_GOOGLE_EMAIL',
     'PARALLEL_API_KEY',
   ]);
   for (const [key, value] of Object.entries(extraSecrets)) {

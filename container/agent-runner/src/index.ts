@@ -448,7 +448,6 @@ async function runQuery(
         'NotebookEdit',
         'mcp__nanoclaw__*',
         'mcp__ollama__*',
-        'mcp__workspace__*',
         'mcp__parallel-search__*',
         'mcp__parallel-task__*',
       ],
@@ -470,21 +469,6 @@ async function runQuery(
         ollama: {
           command: 'node',
           args: [path.join(path.dirname(mcpServerPath), 'ollama-mcp-stdio.js')],
-        },
-        workspace: {
-          command: '/opt/google_workspace_mcp/.venv/bin/python',
-          args: [
-            '/opt/google_workspace_mcp/main.py',
-            '--single-user',
-            '--tools', 'gmail', 'calendar', 'drive', 'tasks', 'docs', 'sheets', 'slides', 'forms', 'chat', 'contacts', 'appscript', 'search',
-          ],
-          env: {
-            GOOGLE_OAUTH_CLIENT_ID: (sdkEnv.GOOGLE_OAUTH_CLIENT_ID as string) || '',
-            GOOGLE_OAUTH_CLIENT_SECRET: (sdkEnv.GOOGLE_OAUTH_CLIENT_SECRET as string) || '',
-            WORKSPACE_MCP_CREDENTIALS_DIR: '/home/node/.workspace-mcp/credentials',
-            OAUTHLIB_INSECURE_TRANSPORT: '1',
-            USER_GOOGLE_EMAIL: (sdkEnv.USER_GOOGLE_EMAIL as string) || '',
-          },
         },
         ...(sdkEnv.PARALLEL_API_KEY ? {
           'parallel-search': {
@@ -558,7 +542,11 @@ async function main(): Promise<void> {
 
   // Credentials are injected by the host's credential proxy via ANTHROPIC_BASE_URL.
   // No real secrets exist in the container environment.
-  const sdkEnv: Record<string, string | undefined> = { ...process.env };
+  const sdkEnv: Record<string, string | undefined> = {
+    ...process.env,
+    GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE: '/home/node/.config/gws/credentials.json',
+    GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND: 'file',
+  };
 
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const mcpServerPath = path.join(__dirname, 'ipc-mcp-stdio.js');
