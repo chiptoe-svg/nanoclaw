@@ -11,18 +11,32 @@
  *             subsequent requests carry the temp key which is valid as-is.
  */
 import { execSync } from 'child_process';
+import { readFileSync } from 'fs';
 import { createServer, Server } from 'http';
 import { request as httpsRequest } from 'https';
 import { request as httpRequest, RequestOptions } from 'http';
+import { homedir } from 'os';
+import { join } from 'path';
 
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
 
 /**
- * Read the Claude Code OAuth token from the macOS keychain.
- * Returns undefined if not available or not on macOS.
+ * Read the Claude Code OAuth token from ~/.claude/.credentials.json
+ * or fall back to the macOS keychain.
  */
 function readKeychainOauthToken(): string | undefined {
+  // Primary: read from credentials file (written by Claude Code CLI)
+  try {
+    const credPath = join(homedir(), '.claude', '.credentials.json');
+    const data = JSON.parse(readFileSync(credPath, 'utf8'));
+    const token = data?.claudeAiOauth?.accessToken;
+    if (typeof token === 'string' && token) return token;
+  } catch {
+    // fall through to keychain
+  }
+
+  // Fallback: macOS keychain
   if (process.platform !== 'darwin') return undefined;
   try {
     const raw = execSync(
@@ -58,7 +72,9 @@ export function startCredentialProxy(
   ]);
 
   const authMode: AuthMode = secrets.ANTHROPIC_API_KEY ? 'api-key' : 'oauth';
-  const oauthToken =
+
+  // Read OAuth token lazily so refreshed tokens are picked up without restart
+  const getOauthToken = () =>
     secrets.CLAUDE_CODE_OAUTH_TOKEN ||
     secrets.ANTHROPIC_AUTH_TOKEN ||
     readKeychainOauthToken();
@@ -98,8 +114,9 @@ export function startCredentialProxy(
           // x-api-key only, so they pass through without token injection.
           if (headers['authorization']) {
             delete headers['authorization'];
-            if (oauthToken) {
-              headers['authorization'] = `Bearer ${oauthToken}`;
+            const token = getOauthToken();
+            if (token) {
+              headers['authorization'] = `Bearer ${token}`;
             }
           }
         }
