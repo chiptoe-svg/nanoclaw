@@ -4,6 +4,7 @@ import path from 'path';
 import {
   ASSISTANT_NAME,
   CREDENTIAL_PROXY_PORT,
+  GROUPS_DIR,
   IDLE_TIMEOUT,
   MESSAGE_RETENTION_DAYS,
   POLL_INTERVAL,
@@ -48,7 +49,12 @@ import {
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
-import { findChannel, formatMessages, formatOutbound, stripInternalTags } from './router.js';
+import {
+  findChannel,
+  formatMessages,
+  formatOutbound,
+  stripInternalTags,
+} from './router.js';
 import {
   isSenderAllowed,
   isTriggerAllowed,
@@ -181,8 +187,25 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     if (!hasTrigger) return true;
   }
 
-  const prompt = formatMessages(missedMessages, TIMEZONE);
+  let prompt = formatMessages(missedMessages, TIMEZONE);
   const imageAttachments = parseImageReferences(missedMessages);
+
+  // AI Bridge: inject any pending Claude Code → agent messages into the prompt
+  const logsDir = path.join(GROUPS_DIR, group.folder, 'logs');
+  const inboxPath = path.join(logsDir, 'agent-inbox.log');
+  const commsLogPath = path.join(logsDir, 'comms.log');
+  try {
+    const inbox = fs.readFileSync(inboxPath, 'utf-8').trim();
+    if (inbox) {
+      prompt = `[Message from Claude Code]\n${inbox}\n[End of Claude Code message]\n\n${prompt}`;
+      fs.writeFileSync(inboxPath, '');
+      fs.mkdirSync(logsDir, { recursive: true });
+      fs.appendFileSync(commsLogPath, `[${new Date().toISOString()}] → AGENT: ${inbox}\n`);
+      logger.info({ group: group.name }, 'Injected Claude Code inbox message into prompt');
+    }
+  } catch {
+    // No inbox or unreadable — normal case
+  }
 
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
   // these messages. Save the old cursor so we can roll back on error.
