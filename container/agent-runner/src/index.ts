@@ -453,6 +453,7 @@ async function runQuery(
         'mcp__parallel-task__*',
       ],
       env: sdkEnv,
+      model: 'claude-opus-4-6',
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
       settingSources: ['project', 'user'],
