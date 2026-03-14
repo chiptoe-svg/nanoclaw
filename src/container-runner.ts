@@ -207,7 +207,7 @@ function buildVolumeMounts(
     mounts.push({
       hostPath: gwsConfigDir,
       containerPath: '/home/node/.config/gws',
-      readonly: true,
+      readonly: false,
     });
   }
 
@@ -251,9 +251,7 @@ function buildContainerArgs(
   }
 
   // Pass non-Anthropic secrets that the credential proxy does not handle
-  const extraSecrets = readEnvFile([
-    'PARALLEL_API_KEY',
-  ]);
+  const extraSecrets = readEnvFile(['PARALLEL_API_KEY']);
   for (const [key, value] of Object.entries(extraSecrets)) {
     args.push('-e', `${key}=${value}`);
   }
