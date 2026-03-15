@@ -314,12 +314,16 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           typeof result.result === 'string'
             ? result.result
             : JSON.stringify(result.result);
-        // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-        const text = stripInternalTags(raw);
         logger.info(
           { group: group.name },
           `Agent output: ${raw.slice(0, 200)}`,
         );
+        // Replace session-poisoning errors with a friendly message.
+        // The raw API error JSON is not useful to the user; the session will
+        // be cleared automatically so the next message starts fresh.
+        const text = isSessionPoisoned(raw)
+          ? "Sorry, I couldn't process that — something in our conversation broke (likely a bad image). I've reset our session so just send your message again and I'll pick up from there."
+          : stripInternalTags(raw);
         if (text) {
           await channel.sendMessage(chatJid, text);
           outputSentToUser = true;
