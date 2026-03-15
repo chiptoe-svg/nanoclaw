@@ -111,7 +111,8 @@ export async function startRemoteControl(
   try {
     proc = spawn('claude', ['remote-control', '--name', 'NanoClaw Remote'], {
       cwd,
-      stdio: ['ignore', stdoutFd, stderrFd],
+      // stdin is a pipe so we can answer the first-time "Enable Remote Control? (y/n)" prompt.
+      stdio: ['pipe', stdoutFd, stderrFd],
       detached: true,
     });
   } catch (err: any) {
@@ -123,6 +124,15 @@ export async function startRemoteControl(
   // Close FDs in the parent — the child inherited copies
   fs.closeSync(stdoutFd);
   fs.closeSync(stderrFd);
+
+  // Answer the first-time confirmation prompt, then close stdin so the
+  // process treats subsequent reads as EOF (it doesn't need more input).
+  try {
+    proc.stdin?.write('y\n');
+    proc.stdin?.end();
+  } catch {
+    // Ignore — stdin may already be closed if the prompt was not shown
+  }
 
   // Fully detach from parent
   proc.unref();
