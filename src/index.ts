@@ -364,6 +364,21 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   return true;
 }
 
+/**
+ * Patterns in agent result text that indicate the session history is corrupted
+ * and cannot be resumed. When detected, the session is cleared so the next
+ * message starts a fresh conversation instead of replaying the bad content.
+ */
+const SESSION_POISON_PATTERNS: RegExp[] = [
+  /Could not process image/i,
+  /"type"\s*:\s*"invalid_request_error"/,
+];
+
+function isSessionPoisoned(result: string | null | undefined): boolean {
+  if (!result) return false;
+  return SESSION_POISON_PATTERNS.some((p) => p.test(result));
+}
+
 async function runAgent(
   group: RegisteredGroup,
   prompt: string,
@@ -430,6 +445,18 @@ async function runAgent(
     if (output.newSessionId) {
       sessions[group.folder] = output.newSessionId;
       setSession(group.folder, output.newSessionId);
+    }
+
+    // If the result contains a session-poisoning error (e.g. bad image data
+    // in history), clear the session so the next message starts fresh instead
+    // of replaying the unprocessable content on every subsequent request.
+    if (isSessionPoisoned(output.result)) {
+      logger.warn(
+        { group: group.name, snippet: output.result?.slice(0, 120) },
+        'Session-poisoning error detected — clearing session',
+      );
+      delete sessions[group.folder];
+      setSession(group.folder, '');
     }
 
     if (output.status === 'error') {
