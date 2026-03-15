@@ -81,7 +81,10 @@ function saveOAuthCredentials(updated: OAuthCredentials): void {
     } catch {
       // file missing — start fresh
     }
-    root.claudeAiOauth = { ...(root.claudeAiOauth as object ?? {}), ...updated };
+    root.claudeAiOauth = {
+      ...((root.claudeAiOauth as object) ?? {}),
+      ...updated,
+    };
     writeFileSync(credPath, JSON.stringify(root, null, 2));
   } catch (err) {
     logger.warn({ err }, 'Failed to persist refreshed OAuth token');
@@ -194,29 +197,39 @@ export function startCredentialProxy(
   let tokenCache: TokenCache = { cacheExpiresAt: 0 };
   let refreshPromise: Promise<void> | null = null;
 
+  const doRefresh = (refreshToken: string, now: number): Promise<void> => {
+    refreshPromise = (async () => {
+      const updated = await refreshOAuthToken(refreshToken);
+      if (updated) {
+        saveOAuthCredentials(updated);
+        tokenCache = {
+          value: updated.accessToken,
+          cacheExpiresAt: now + TOKEN_CACHE_TTL_MS,
+          tokenExpiresAt: updated.expiresAt,
+        };
+      }
+      refreshPromise = null;
+    })();
+    return refreshPromise;
+  };
+
   const ensureTokenFresh = async (): Promise<void> => {
     if (refreshPromise) return refreshPromise;
 
     const now = Date.now();
-    const tokenExpiry = tokenCache.tokenExpiresAt;
-    if (tokenExpiry !== undefined && now >= tokenExpiry - REFRESH_BUFFER_MS) {
-      // Token is expired or about to expire — refresh it.
-      const creds = readFullOAuthCredentials();
-      if (creds?.refreshToken) {
-        refreshPromise = (async () => {
-          const updated = await refreshOAuthToken(creds.refreshToken!);
-          if (updated) {
-            saveOAuthCredentials(updated);
-            tokenCache = {
-              value: updated.accessToken,
-              cacheExpiresAt: now + TOKEN_CACHE_TTL_MS,
-              tokenExpiresAt: updated.expiresAt,
-            };
-          }
-          refreshPromise = null;
-        })();
-        return refreshPromise;
-      }
+
+    // Always read from disk so we have an up-to-date expiresAt.
+    // This is critical when the proxy falls back to the macOS keychain,
+    // which does not include expiresAt — in that case we treat the token
+    // as needing a refresh so the proxy can learn the real expiry.
+    const creds = readFullOAuthCredentials();
+    const tokenExpiry = creds?.expiresAt ?? tokenCache.tokenExpiresAt;
+
+    if (
+      creds?.refreshToken &&
+      (tokenExpiry === undefined || now >= tokenExpiry - REFRESH_BUFFER_MS)
+    ) {
+      return doRefresh(creds.refreshToken, now);
     }
   };
 
@@ -226,10 +239,7 @@ export function startCredentialProxy(
 
     const now = Date.now();
 
-    // Check if we need to refresh (expired or near-expiry).
-    await ensureTokenFresh();
-
-    // Re-read from disk if cache TTL elapsed.
+    // Re-read from disk if cache TTL elapsed, then refresh if needed.
     if (now >= tokenCache.cacheExpiresAt) {
       const creds = readFullOAuthCredentials();
       tokenCache = {
@@ -237,11 +247,11 @@ export function startCredentialProxy(
         cacheExpiresAt: now + TOKEN_CACHE_TTL_MS,
         tokenExpiresAt: creds?.expiresAt,
       };
-      // If still expired after re-read, trigger a refresh now.
+      // Refresh when expired, near-expiry, OR when expiresAt is unknown
+      // (keychain fallback — the keychain doesn't store expiresAt).
       if (
         creds?.refreshToken &&
-        creds.expiresAt !== undefined &&
-        now >= creds.expiresAt - REFRESH_BUFFER_MS
+        (creds.expiresAt === undefined || now >= creds.expiresAt - REFRESH_BUFFER_MS)
       ) {
         await ensureTokenFresh();
       }
@@ -292,33 +302,59 @@ export function startCredentialProxy(
           }
         }
 
-        const upstream = makeRequest(
-          {
-            hostname: upstreamUrl.hostname,
-            port: upstreamUrl.port || (isHttps ? 443 : 80),
-            path: req.url,
-            method: req.method,
-            headers,
-          } as RequestOptions,
-          (upRes) => {
+        const forwardRequest = (
+          hdrs: Record<string, string | number | string[] | undefined>,
+          onResponse: (upRes: import('http').IncomingMessage) => void,
+        ) => {
+          const up = makeRequest(
+            {
+              hostname: upstreamUrl.hostname,
+              port: upstreamUrl.port || (isHttps ? 443 : 80),
+              path: req.url,
+              method: req.method,
+              headers: hdrs,
+            } as RequestOptions,
+            onResponse,
+          );
+          up.on('error', (err) => {
+            logger.error({ err, url: req.url }, 'Credential proxy upstream error');
+            if (!res.headersSent) {
+              res.writeHead(502);
+              res.end('Bad Gateway');
+            }
+          });
+          up.write(body);
+          up.end();
+          return up;
+        };
+
+        forwardRequest(headers, async (upRes) => {
+          // On 401, refresh the token and retry once (OAuth mode only).
+          if (
+            upRes.statusCode === 401 &&
+            authMode === 'oauth' &&
+            headers['authorization']
+          ) {
+            // Drain the 401 body so the socket is reusable.
+            upRes.resume();
+            logger.warn({ url: req.url }, 'Upstream 401 — refreshing OAuth token and retrying');
+            // Force-invalidate the cache so ensureTokenFresh will refresh.
+            tokenCache = { cacheExpiresAt: 0 };
+            await ensureTokenFresh();
+            const newToken = tokenCache.value;
+            const retryHeaders = { ...headers };
+            if (newToken) {
+              retryHeaders['authorization'] = `Bearer ${newToken}`;
+            }
+            forwardRequest(retryHeaders, (retryRes) => {
+              res.writeHead(retryRes.statusCode!, retryRes.headers);
+              retryRes.pipe(res);
+            });
+          } else {
             res.writeHead(upRes.statusCode!, upRes.headers);
             upRes.pipe(res);
-          },
-        );
-
-        upstream.on('error', (err) => {
-          logger.error(
-            { err, url: req.url },
-            'Credential proxy upstream error',
-          );
-          if (!res.headersSent) {
-            res.writeHead(502);
-            res.end('Bad Gateway');
           }
         });
-
-        upstream.write(body);
-        upstream.end();
       });
     });
 
