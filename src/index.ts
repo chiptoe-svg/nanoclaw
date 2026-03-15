@@ -156,7 +156,11 @@ export function _setRegisteredGroups(
  * Prepends the inbox content to the prompt and appends to comms.log.
  * Returns the (possibly modified) prompt.
  */
-function injectInboxMessage(groupFolder: string, groupName: string, prompt: string): string {
+function injectInboxMessage(
+  groupFolder: string,
+  groupName: string,
+  prompt: string,
+): string {
   const logsDir = path.join(GROUPS_DIR, groupFolder, 'logs');
   const inboxPath = path.join(logsDir, 'agent-inbox.log');
   const commsLogPath = path.join(logsDir, 'comms.log');
@@ -169,7 +173,10 @@ function injectInboxMessage(groupFolder: string, groupName: string, prompt: stri
         commsLogPath,
         `[${new Date().toISOString()}] → AGENT: ${inbox}\n`,
       );
-      logger.info({ group: groupName }, 'Injected Claude Code inbox message into prompt');
+      logger.info(
+        { group: groupName },
+        'Injected Claude Code inbox message into prompt',
+      );
       return `[Message from Claude Code]\n${inbox}\n[End of Claude Code message]\n\n${prompt}`;
     }
   } catch {

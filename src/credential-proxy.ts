@@ -251,7 +251,8 @@ export function startCredentialProxy(
       // (keychain fallback — the keychain doesn't store expiresAt).
       if (
         creds?.refreshToken &&
-        (creds.expiresAt === undefined || now >= creds.expiresAt - REFRESH_BUFFER_MS)
+        (creds.expiresAt === undefined ||
+          now >= creds.expiresAt - REFRESH_BUFFER_MS)
       ) {
         await ensureTokenFresh();
       }
@@ -317,7 +318,10 @@ export function startCredentialProxy(
             onResponse,
           );
           up.on('error', (err) => {
-            logger.error({ err, url: req.url }, 'Credential proxy upstream error');
+            logger.error(
+              { err, url: req.url },
+              'Credential proxy upstream error',
+            );
             if (!res.headersSent) {
               res.writeHead(502);
               res.end('Bad Gateway');
@@ -337,7 +341,10 @@ export function startCredentialProxy(
           ) {
             // Drain the 401 body so the socket is reusable.
             upRes.resume();
-            logger.warn({ url: req.url }, 'Upstream 401 — refreshing OAuth token and retrying');
+            logger.warn(
+              { url: req.url },
+              'Upstream 401 — refreshing OAuth token and retrying',
+            );
             // Force-invalidate the cache so ensureTokenFresh will refresh.
             tokenCache = { cacheExpiresAt: 0 };
             await ensureTokenFresh();
