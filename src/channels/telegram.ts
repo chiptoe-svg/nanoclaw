@@ -59,8 +59,13 @@ export class TelegramChannel implements Channel {
     });
 
     this.bot.on('message:text', async (ctx) => {
-      // Skip commands
-      if (ctx.message.text.startsWith('/')) return;
+      // Skip commands, but pass through remote-control commands
+      const RC_COMMANDS = ['/remote-control', '/remote-control-end'];
+      if (
+        ctx.message.text.startsWith('/') &&
+        !RC_COMMANDS.includes(ctx.message.text.trim())
+      )
+        return;
 
       const chatJid = `tg:${ctx.chat.id}`;
       let content = ctx.message.text;
