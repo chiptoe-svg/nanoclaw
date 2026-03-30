@@ -1,7 +1,11 @@
 import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
-import type { WAMessage } from '@whiskeysockets/baileys';
+
+// Minimal type for WhatsApp message compatibility (avoids baileys dependency)
+interface WAMessage {
+  message?: { imageMessage?: unknown };
+}
 
 const MAX_DIMENSION = 1024;
 const IMAGE_REF_PATTERN = /\[Image: (attachments\/[^\]]+)\]/g;
