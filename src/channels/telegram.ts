@@ -59,11 +59,15 @@ export class TelegramChannel implements Channel {
     });
 
     this.bot.on('message:text', async (ctx) => {
-      // Skip commands, but pass through remote-control commands
-      const RC_COMMANDS = ['/remote-control', '/remote-control-end'];
+      // Skip slash commands, except a small allowlist that the agent handles
+      const ALLOWED_SLASH_COMMANDS = [
+        '/remote-control',
+        '/remote-control-end',
+        '/nanoclaw-check',
+      ];
       if (
         ctx.message.text.startsWith('/') &&
-        !RC_COMMANDS.includes(ctx.message.text.trim())
+        !ALLOWED_SLASH_COMMANDS.includes(ctx.message.text.trim())
       )
         return;
 
