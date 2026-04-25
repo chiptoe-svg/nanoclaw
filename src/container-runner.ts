@@ -269,7 +269,11 @@ async function buildContainerArgs(
   }
 
   // Pass non-Anthropic secrets that the credential proxy does not handle
-  const extraSecrets = readEnvFile(['PARALLEL_API_KEY', 'OPENAI_API_KEY']);
+  const extraSecrets = readEnvFile([
+    'PARALLEL_API_KEY',
+    'OPENAI_API_KEY',
+    'GH_TOKEN',
+  ]);
   for (const [key, value] of Object.entries(extraSecrets)) {
     args.push('-e', `${key}=${value}`);
   }
