@@ -1,0 +1,193 @@
+#!/usr/bin/env bash
+# alojoh-query — read-only CLI over the @alojoh timeline + price DB.
+# DB is mounted read-only from the host; we open with mode=ro&immutable=1
+# so sqlite ignores the WAL and never tries to write the -shm file.
+
+set -euo pipefail
+
+DB_PATH="/workspace/project/store/alojoh.db"
+DB_URI="file:${DB_PATH}?mode=ro&immutable=1"
+
+if [[ ! -f "$DB_PATH" ]]; then
+  echo "alojoh-query: database not found at $DB_PATH" >&2
+  exit 2
+fi
+
+sq() {
+  sqlite3 \
+    -cmd ".open '${DB_URI}'" \
+    -cmd ".mode column" \
+    -cmd ".headers on" \
+    "" "$@"
+}
+
+# --since arg: Nd / Nm / Ny → ISO date in the past
+since_to_iso() {
+  local arg="$1"
+  if [[ ! "$arg" =~ ^([0-9]+)([dmy])$ ]]; then
+    echo "alojoh-query: --since must be like 7d, 3m, 2y" >&2
+    exit 2
+  fi
+  local n="${BASH_REMATCH[1]}"
+  local unit="${BASH_REMATCH[2]}"
+  local days
+  case "$unit" in
+    d) days="$n" ;;
+    m) days=$((n * 30)) ;;
+    y) days=$((n * 365)) ;;
+  esac
+  date -u -d "$days days ago" '+%Y-%m-%d' 2>/dev/null \
+    || date -u -v-"${days}"d '+%Y-%m-%d'
+}
+
+usage() {
+  cat <<EOF
+Usage:
+  alojoh-query summary
+  alojoh-query posts <TICKER> [--since 7d] [--limit N]
+  alojoh-query latest [N]
+  alojoh-query price <TICKER> [--since 30d]
+  alojoh-query search <query>
+  alojoh-query stats
+EOF
+  exit 1
+}
+
+cmd="${1:-}"
+shift || true
+
+case "$cmd" in
+  summary)
+    sq <<'SQL'
+WITH posts_per AS (
+  SELECT json_each.value AS ticker, COUNT(*) AS posts
+  FROM x_posts, json_each(x_posts.tickers)
+  GROUP BY json_each.value
+),
+price_range AS (
+  SELECT ticker,
+         MIN(date) AS first_date, MAX(date) AS last_date,
+         (SELECT adj_close FROM market_prices p2
+           WHERE p2.ticker = p1.ticker ORDER BY date ASC LIMIT 1) AS first_close,
+         (SELECT adj_close FROM market_prices p3
+           WHERE p3.ticker = p1.ticker ORDER BY date DESC LIMIT 1) AS last_close
+  FROM market_prices p1 GROUP BY ticker
+)
+SELECT
+  pr.ticker AS ticker,
+  COALESCE(pp.posts, 0) AS posts,
+  printf('%.2f', pr.first_close) AS first_px,
+  printf('%.2f', pr.last_close)  AS last_px,
+  printf('%+.1f%%', (pr.last_close - pr.first_close) * 100.0 / pr.first_close) AS mkt_chg,
+  pr.first_date AS since,
+  pr.last_date  AS until
+FROM price_range pr
+LEFT JOIN posts_per pp ON pp.ticker = pr.ticker
+ORDER BY pr.ticker;
+SQL
+    ;;
+
+  posts)
+    ticker="${1:-}"; [[ -z "$ticker" ]] && usage
+    shift
+    ticker=$(echo "$ticker" | tr '[:lower:]' '[:upper:]')
+    since=""
+    limit="100"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --since) since="$(since_to_iso "$2")"; shift 2 ;;
+        --limit) limit="$2"; shift 2 ;;
+        *) usage ;;
+      esac
+    done
+    where="tickers LIKE '%\"${ticker}\"%'"
+    [[ -n "$since" ]] && where="$where AND created_at >= '${since}'"
+    sq <<SQL
+.mode list
+.separator "  "
+SELECT substr(created_at, 1, 10) AS date,
+       substr(replace(text, char(10), ' '), 1, 100) AS text,
+       url
+FROM x_posts
+WHERE ${where}
+ORDER BY created_at DESC
+LIMIT ${limit};
+SQL
+    ;;
+
+  latest)
+    n="${1:-20}"
+    sq <<SQL
+.mode list
+.separator "  "
+SELECT substr(created_at, 1, 10) AS date,
+       tickers,
+       substr(replace(text, char(10), ' '), 1, 100) AS text
+FROM x_posts ORDER BY created_at DESC LIMIT ${n};
+SQL
+    ;;
+
+  price)
+    ticker="${1:-}"; [[ -z "$ticker" ]] && usage
+    shift
+    ticker=$(echo "$ticker" | tr '[:lower:]' '[:upper:]')
+    since=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --since) since="$(since_to_iso "$2")"; shift 2 ;;
+        *) usage ;;
+      esac
+    done
+    [[ -z "$since" ]] && since="$(since_to_iso 30d)"
+    sq <<SQL
+SELECT date,
+       printf('%.2f', open)      AS open,
+       printf('%.2f', high)      AS high,
+       printf('%.2f', low)       AS low,
+       printf('%.2f', close)     AS close,
+       printf('%.2f', adj_close) AS adj_close,
+       volume
+FROM market_prices
+WHERE ticker = '${ticker}' AND date >= '${since}'
+ORDER BY date DESC;
+SQL
+    ;;
+
+  search)
+    q="${1:-}"; [[ -z "$q" ]] && usage
+    # Escape single quotes for SQL by doubling them
+    q_escaped="${q//\'/\'\'}"
+    sq <<SQL
+.mode list
+.separator "  "
+SELECT substr(created_at, 1, 10) AS date,
+       tickers,
+       substr(replace(text, char(10), ' '), 1, 120) AS text,
+       url
+FROM x_posts
+WHERE text LIKE '%${q_escaped}%'
+ORDER BY created_at DESC
+LIMIT 50;
+SQL
+    ;;
+
+  stats)
+    sq <<'SQL'
+SELECT 'post_count'        AS metric, CAST(COUNT(*) AS TEXT) AS value FROM x_posts
+UNION ALL
+SELECT 'earliest_post',    MIN(created_at) FROM x_posts
+UNION ALL
+SELECT 'latest_post',      MAX(created_at) FROM x_posts
+UNION ALL
+SELECT 'price_count',      CAST(COUNT(*) AS TEXT) FROM market_prices
+UNION ALL
+SELECT 'price_tickers',    CAST(COUNT(DISTINCT ticker) AS TEXT) FROM market_prices
+UNION ALL
+SELECT 'last_timeline_fetch', value FROM alojoh_state WHERE key = 'last_timeline_fetch'
+UNION ALL
+SELECT 'last_price_fetch',    value FROM alojoh_state WHERE key = 'last_price_fetch';
+SQL
+    ;;
+
+  *) usage ;;
+esac

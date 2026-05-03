@@ -16,23 +16,12 @@ import {
   setAlojohState,
   upsertPost,
 } from '../../src/alojoh-db.js';
+import { extractTickers } from './tickers.js';
 
 const ALOJOH_URL = 'https://x.com/alojoh';
 const TWO_YEARS_AGO = new Date(
   Date.now() - 2 * 365.25 * 24 * 60 * 60 * 1000,
 ).toISOString();
-
-const TICKER_RE = /\$([A-Z]{1,6})(?![a-z\d])/g;
-
-function extractTickers(text: string): string[] {
-  const matches = new Set<string>();
-  TICKER_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = TICKER_RE.exec(text)) !== null) {
-    matches.add(m[1]);
-  }
-  return Array.from(matches);
-}
 
 async function fetchTimeline(opts: { backfill: boolean }): Promise<void> {
   const cutoffDate = opts.backfill ? TWO_YEARS_AGO : null;

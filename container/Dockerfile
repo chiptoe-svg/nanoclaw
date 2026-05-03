@@ -27,6 +27,7 @@ RUN apt-get update && apt-get install -y \
     poppler-utils \
     tesseract-ocr \
     tesseract-ocr-eng \
+    sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install GitHub CLI (gh) — used by /nanoclaw-check skill
@@ -65,6 +66,10 @@ RUN npm run build
 # Install pdf-reader CLI
 COPY skills/pdf-reader/pdf-reader /usr/local/bin/pdf-reader
 RUN chmod +x /usr/local/bin/pdf-reader
+
+# Install alojoh-query CLI (read-only access to @alojoh DB)
+COPY skills/alojoh/alojoh-query /usr/local/bin/alojoh-query
+RUN chmod +x /usr/local/bin/alojoh-query
 
 # Create workspace directories
 RUN mkdir -p /workspace/group /workspace/global /workspace/extra /workspace/ipc/messages /workspace/ipc/tasks /workspace/ipc/input

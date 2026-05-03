@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import fs from 'fs';
 import path from 'path';
 
 import { getAlojohState } from './alojoh-db.js';
@@ -43,11 +44,47 @@ function spawnFetch(script: string): Promise<void> {
   });
 }
 
+function spawnReport(script: string, outFile: string): Promise<void> {
+  return new Promise((resolve) => {
+    const out = fs.openSync(outFile, 'w');
+    const proc = spawn('npx', ['tsx', path.join(SCRIPTS_DIR, `${script}.ts`)], {
+      cwd: process.cwd(),
+      env: { ...process.env, NANOCLAW_ROOT: process.cwd() },
+      stdio: ['ignore', out, 'pipe'],
+    });
+    proc.stderr?.on('data', (d: Buffer) => {
+      for (const line of d.toString().trim().split('\n')) {
+        if (line) logger.warn({ script }, line);
+      }
+    });
+    proc.on('close', (code) => {
+      fs.closeSync(out);
+      if (code !== 0) {
+        logger.error({ script, code }, 'alojoh report exited with error');
+      } else {
+        logger.info({ script, outFile }, 'alojoh report written');
+      }
+      resolve();
+    });
+    proc.on('error', (err) => {
+      fs.closeSync(out);
+      logger.error({ script, err }, 'Failed to spawn alojoh report');
+      resolve();
+    });
+  });
+}
+
 async function runFetch(): Promise<void> {
   logger.info('alojoh: running timeline fetch');
   await spawnFetch('fetch-timeline');
   logger.info('alojoh: running price fetch');
   await spawnFetch('fetch-prices');
+
+  const reportsDir = path.join(process.cwd(), 'reports');
+  fs.mkdirSync(reportsDir, { recursive: true });
+  await spawnReport('summary', path.join(reportsDir, 'alojoh-summary.txt'));
+  await spawnReport('report', path.join(reportsDir, 'alojoh-vs-market.txt'));
+
   logger.info('alojoh: fetch cycle complete');
 }
 
