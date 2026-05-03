@@ -406,6 +406,324 @@ server.tool(
   },
 );
 
+const X_RESULTS_DIR = path.join(IPC_DIR, 'x_results');
+
+async function waitForXResult(requestId: string, maxWait = 60000): Promise<{ success: boolean; message: string }> {
+  const resultFile = path.join(X_RESULTS_DIR, `${requestId}.json`);
+  const pollInterval = 1000;
+  let elapsed = 0;
+
+  while (elapsed < maxWait) {
+    if (fs.existsSync(resultFile)) {
+      try {
+        const result = JSON.parse(fs.readFileSync(resultFile, 'utf-8'));
+        fs.unlinkSync(resultFile);
+        return result;
+      } catch {
+        return { success: false, message: 'Failed to read result' };
+      }
+    }
+    await new Promise(resolve => setTimeout(resolve, pollInterval));
+    elapsed += pollInterval;
+  }
+
+  return { success: false, message: 'Request timed out' };
+}
+
+server.tool(
+  'x_post',
+  'Post a tweet to X (Twitter). Main group only. Content must be 280 characters or fewer.',
+  {
+    content: z.string().max(280).describe('The tweet content to post (max 280 characters)'),
+  },
+  async (args) => {
+    if (!isMain) {
+      return { content: [{ type: 'text' as const, text: 'Only the main group can post tweets.' }], isError: true };
+    }
+
+    const requestId = `xpost-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    writeIpcFile(TASKS_DIR, { type: 'x_post', requestId, content: args.content, groupFolder, timestamp: new Date().toISOString() });
+
+    const result = await waitForXResult(requestId);
+    return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
+  },
+);
+
+server.tool(
+  'x_like',
+  'Like a tweet on X (Twitter). Main group only.',
+  {
+    tweet_url: z.string().describe('The tweet URL (e.g., https://x.com/user/status/123) or tweet ID'),
+  },
+  async (args) => {
+    if (!isMain) {
+      return { content: [{ type: 'text' as const, text: 'Only the main group can interact with X.' }], isError: true };
+    }
+
+    const requestId = `xlike-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    writeIpcFile(TASKS_DIR, { type: 'x_like', requestId, tweetUrl: args.tweet_url, groupFolder, timestamp: new Date().toISOString() });
+
+    const result = await waitForXResult(requestId);
+    return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
+  },
+);
+
+server.tool(
+  'x_reply',
+  'Reply to a tweet on X (Twitter). Main group only.',
+  {
+    tweet_url: z.string().describe('The tweet URL (e.g., https://x.com/user/status/123) or tweet ID'),
+    content: z.string().max(280).describe('The reply content (max 280 characters)'),
+  },
+  async (args) => {
+    if (!isMain) {
+      return { content: [{ type: 'text' as const, text: 'Only the main group can interact with X.' }], isError: true };
+    }
+
+    const requestId = `xreply-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    writeIpcFile(TASKS_DIR, { type: 'x_reply', requestId, tweetUrl: args.tweet_url, content: args.content, groupFolder, timestamp: new Date().toISOString() });
+
+    const result = await waitForXResult(requestId);
+    return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
+  },
+);
+
+server.tool(
+  'x_retweet',
+  'Retweet a tweet on X (Twitter). Main group only.',
+  {
+    tweet_url: z.string().describe('The tweet URL (e.g., https://x.com/user/status/123) or tweet ID'),
+  },
+  async (args) => {
+    if (!isMain) {
+      return { content: [{ type: 'text' as const, text: 'Only the main group can interact with X.' }], isError: true };
+    }
+
+    const requestId = `xretweet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    writeIpcFile(TASKS_DIR, { type: 'x_retweet', requestId, tweetUrl: args.tweet_url, groupFolder, timestamp: new Date().toISOString() });
+
+    const result = await waitForXResult(requestId);
+    return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
+  },
+);
+
+server.tool(
+  'x_quote',
+  'Quote tweet on X (Twitter) — retweet with your own comment. Main group only.',
+  {
+    tweet_url: z.string().describe('The tweet URL (e.g., https://x.com/user/status/123) or tweet ID'),
+    comment: z.string().max(280).describe('Your comment for the quote tweet (max 280 characters)'),
+  },
+  async (args) => {
+    if (!isMain) {
+      return { content: [{ type: 'text' as const, text: 'Only the main group can interact with X.' }], isError: true };
+    }
+
+    const requestId = `xquote-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    writeIpcFile(TASKS_DIR, { type: 'x_quote', requestId, tweetUrl: args.tweet_url, comment: args.comment, groupFolder, timestamp: new Date().toISOString() });
+
+    const result = await waitForXResult(requestId);
+    return { content: [{ type: 'text' as const, text: result.message }], isError: !result.success };
+  },
+);
+
+// --- alojoh investment tracking tools ---
+
+const ALOJOH_RESULTS_DIR = path.join(IPC_DIR, 'x_results');
+
+async function waitForAlojohResult(requestId: string, maxWait = 30000): Promise<{ success: boolean; message: string; data?: unknown }> {
+  const resultFile = path.join(ALOJOH_RESULTS_DIR, `${requestId}.json`);
+  const pollInterval = 500;
+  let elapsed = 0;
+
+  while (elapsed < maxWait) {
+    if (fs.existsSync(resultFile)) {
+      try {
+        const result = JSON.parse(fs.readFileSync(resultFile, 'utf-8'));
+        fs.unlinkSync(resultFile);
+        return result;
+      } catch {
+        return { success: false, message: 'Failed to read result' };
+      }
+    }
+    await new Promise(resolve => setTimeout(resolve, pollInterval));
+    elapsed += pollInterval;
+  }
+
+  return { success: false, message: 'Request timed out' };
+}
+
+server.tool(
+  'alojoh_get_posts',
+  `Query @alojoh's X posts stored in the investment tracking database.
+Returns posts with mentioned tickers, dates, and full text. Main group only.
+
+Use this to find investment advice for a specific ticker, review recent posts,
+or pull posts from a specific time period.`,
+  {
+    ticker: z.string().optional().describe('Filter by ticker symbol (e.g. "AAPL", "TSLA"). Omit for all tickers.'),
+    start_date: z.string().optional().describe('ISO date string — only return posts on or after this date (e.g. "2024-01-01")'),
+    end_date: z.string().optional().describe('ISO date string — only return posts on or before this date'),
+    limit: z.number().int().min(1).max(200).optional().describe('Max posts to return (default 50)'),
+    offset: z.number().int().min(0).optional().describe('Pagination offset (default 0)'),
+  },
+  async (args) => {
+    if (!isMain) {
+      return { content: [{ type: 'text' as const, text: 'Only the main group can query alojoh data.' }], isError: true };
+    }
+
+    const requestId = `alojoh-posts-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    writeIpcFile(TASKS_DIR, {
+      type: 'alojoh_get_posts',
+      requestId,
+      ticker: args.ticker,
+      start_date: args.start_date,
+      end_date: args.end_date,
+      limit: args.limit,
+      offset: args.offset,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    });
+
+    const result = await waitForAlojohResult(requestId);
+    if (!result.success) {
+      return { content: [{ type: 'text' as const, text: result.message }], isError: true };
+    }
+
+    const posts = result.data as Array<{
+      id: string;
+      text: string;
+      created_at: string;
+      url: string;
+      tickers: string[];
+      is_subscriber_only: boolean;
+    }>;
+
+    if (posts.length === 0) {
+      return { content: [{ type: 'text' as const, text: 'No posts found matching the criteria.' }] };
+    }
+
+    const formatted = posts.map(p =>
+      `[${p.created_at.slice(0, 10)}]${p.is_subscriber_only ? ' [sub]' : ''} ${p.tickers.length ? p.tickers.map(t => '$' + t).join(' ') + ': ' : ''}${p.text}\n${p.url}`
+    ).join('\n\n');
+
+    return { content: [{ type: 'text' as const, text: `${posts.length} post(s):\n\n${formatted}` }] };
+  },
+);
+
+server.tool(
+  'alojoh_get_prices',
+  `Get historical price data for a ticker from the investment tracking database.
+Returns daily OHLCV data. Use this to assess how a ticker performed after @alojoh mentioned it.
+
+To calculate performance since a specific post: get the post date, then query prices
+starting from that date and compare close prices.`,
+  {
+    ticker: z.string().describe('Ticker symbol (e.g. "AAPL")'),
+    start_date: z.string().optional().describe('ISO date string — start of price history (e.g. "2024-01-15")'),
+    end_date: z.string().optional().describe('ISO date string — end of price history'),
+  },
+  async (args) => {
+    if (!isMain) {
+      return { content: [{ type: 'text' as const, text: 'Only the main group can query alojoh data.' }], isError: true };
+    }
+
+    const requestId = `alojoh-prices-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    writeIpcFile(TASKS_DIR, {
+      type: 'alojoh_get_prices',
+      requestId,
+      ticker: args.ticker.toUpperCase(),
+      start_date: args.start_date,
+      end_date: args.end_date,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    });
+
+    const result = await waitForAlojohResult(requestId);
+    if (!result.success) {
+      return { content: [{ type: 'text' as const, text: result.message }], isError: true };
+    }
+
+    const prices = result.data as Array<{
+      date: string;
+      open: number;
+      close: number;
+      high: number;
+      low: number;
+      volume: number;
+    }>;
+
+    if (prices.length === 0) {
+      return { content: [{ type: 'text' as const, text: `No price data found for ${args.ticker}.` }] };
+    }
+
+    const first = prices[0];
+    const last = prices[prices.length - 1];
+    const pct = ((last.close - first.close) / first.close * 100).toFixed(1);
+
+    const rows = prices.map(p =>
+      `${p.date}  open=${p.open.toFixed(2)} close=${p.close.toFixed(2)} high=${p.high.toFixed(2)} low=${p.low.toFixed(2)}`
+    ).join('\n');
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: `${args.ticker.toUpperCase()} — ${prices.length} trading days\nFrom ${first.close.toFixed(2)} (${first.date}) to ${last.close.toFixed(2)} (${last.date}) = ${pct}%\n\n${rows}`,
+      }],
+    };
+  },
+);
+
+server.tool(
+  'alojoh_get_stats',
+  `Get summary statistics for @alojoh's investment tracking database.
+Shows post count, date range, top mentioned tickers, and price data coverage.
+Use this first to understand what data is available before querying posts or prices.`,
+  {},
+  async () => {
+    if (!isMain) {
+      return { content: [{ type: 'text' as const, text: 'Only the main group can query alojoh data.' }], isError: true };
+    }
+
+    const requestId = `alojoh-stats-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    writeIpcFile(TASKS_DIR, {
+      type: 'alojoh_get_stats',
+      requestId,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    });
+
+    const result = await waitForAlojohResult(requestId);
+    if (!result.success) {
+      return { content: [{ type: 'text' as const, text: result.message }], isError: true };
+    }
+
+    const stats = result.data as {
+      post_count: number;
+      earliest_post: string | null;
+      latest_post: string | null;
+      ticker_count: number;
+      price_record_count: number;
+      top_tickers: Array<{ ticker: string; count: number }>;
+    };
+
+    const topTickers = stats.top_tickers.map(t => `$${t.ticker}(${t.count})`).join('  ');
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: [
+          `@alojoh investment database`,
+          `Posts: ${stats.post_count} (${stats.earliest_post?.slice(0, 10) ?? 'n/a'} → ${stats.latest_post?.slice(0, 10) ?? 'n/a'})`,
+          `Tickers mentioned: ${stats.ticker_count}`,
+          `Price records: ${stats.price_record_count}`,
+          `Top tickers: ${topTickers || 'none'}`,
+        ].join('\n'),
+      }],
+    };
+  },
+);
+
 // Start the stdio transport
 const transport = new StdioServerTransport();
 await server.connect(transport);

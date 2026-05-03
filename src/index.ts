@@ -75,6 +75,7 @@ import {
   handleSessionCommand,
   isSessionCommandAllowed,
 } from './session-commands.js';
+import { startAlojohScheduler } from './alojoh-scheduler.js';
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { parseImageReferences } from './image.js';
@@ -918,6 +919,7 @@ async function main(): Promise<void> {
       }
     },
   });
+  startAlojohScheduler();
   queue.setProcessMessagesFn(processGroupMessages);
   recoverPendingMessages();
   startMessageLoop().catch((err) => {
