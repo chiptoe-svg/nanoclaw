@@ -12,15 +12,11 @@ const MIN_FETCH_INTERVAL_HOURS = 10;
 
 function spawnFetch(script: string): Promise<void> {
   return new Promise((resolve) => {
-    const proc = spawn(
-      'npx',
-      ['tsx', path.join(SCRIPTS_DIR, `${script}.ts`)],
-      {
-        cwd: process.cwd(),
-        env: { ...process.env, NANOCLAW_ROOT: process.cwd() },
-        stdio: 'pipe',
-      },
-    );
+    const proc = spawn('npx', ['tsx', path.join(SCRIPTS_DIR, `${script}.ts`)], {
+      cwd: process.cwd(),
+      env: { ...process.env, NANOCLAW_ROOT: process.cwd() },
+      stdio: 'pipe',
+    });
 
     proc.stdout.on('data', (d: Buffer) => {
       for (const line of d.toString().trim().split('\n')) {

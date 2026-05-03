@@ -79,9 +79,7 @@ export function upsertPost(post: Omit<XPost, 'fetched_at'>): void {
 }
 
 export function postExists(id: string): boolean {
-  return !!getAlojohDb()
-    .prepare('SELECT 1 FROM x_posts WHERE id = ?')
-    .get(id);
+  return !!getAlojohDb().prepare('SELECT 1 FROM x_posts WHERE id = ?').get(id);
 }
 
 export function getLatestPostId(): string | null {
@@ -218,9 +216,7 @@ export function getPrices(
 
 export function getLatestPriceDate(ticker: string): string | null {
   const row = getAlojohDb()
-    .prepare(
-      'SELECT MAX(date) as d FROM market_prices WHERE ticker = ?',
-    )
+    .prepare('SELECT MAX(date) as d FROM market_prices WHERE ticker = ?')
     .get(ticker.toUpperCase()) as { d: string | null };
   return row.d;
 }
@@ -236,7 +232,9 @@ export function getAllMentionedTickers(): string[] {
   return Array.from(tickerSet).sort();
 }
 
-export function getTopTickers(limit = 20): Array<{ ticker: string; count: number }> {
+export function getTopTickers(
+  limit = 20,
+): Array<{ ticker: string; count: number }> {
   const rows = getAlojohDb()
     .prepare("SELECT tickers FROM x_posts WHERE tickers != '[]'")
     .all() as Array<{ tickers: string }>;
@@ -278,19 +276,17 @@ export function getDbStats(): {
     db.prepare('SELECT COUNT(*) as n FROM x_posts').get() as { n: number }
   ).n;
   const earliest = (
-    db
-      .prepare('SELECT MIN(created_at) as d FROM x_posts')
-      .get() as { d: string | null }
+    db.prepare('SELECT MIN(created_at) as d FROM x_posts').get() as {
+      d: string | null;
+    }
   ).d;
   const latest = (
-    db
-      .prepare('SELECT MAX(created_at) as d FROM x_posts')
-      .get() as { d: string | null }
+    db.prepare('SELECT MAX(created_at) as d FROM x_posts').get() as {
+      d: string | null;
+    }
   ).d;
   const priceCount = (
-    db
-      .prepare('SELECT COUNT(*) as n FROM market_prices')
-      .get() as { n: number }
+    db.prepare('SELECT COUNT(*) as n FROM market_prices').get() as { n: number }
   ).n;
   const tickers = getAllMentionedTickers();
 

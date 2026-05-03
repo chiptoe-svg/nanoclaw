@@ -46,6 +46,9 @@ export const config = {
     tweetMaxLength: 280,
   },
 
+  // Headless mode — default true for servers without a display
+  headless: process.env.X_HEADLESS !== 'false',
+
   // Chrome launch arguments
   chromeArgs: [
     '--disable-blink-features=AutomationControlled',
