@@ -60,16 +60,16 @@ import './apple-container-registration.js';
 
 ### 3. Select the driver
 
-```nc:env-set NANOCLAW_RUNTIME_DRIVER
-container
+```nc:env-set
+NANOCLAW_RUNTIME_DRIVER=container
 ```
 
 `CONTAINER_RUNTIME=container` should also be set in `.env` so the non-session
 shell-outs (per-group image builds, `container/build.sh`) target the same
 runtime the sessions run on:
 
-```nc:env-set CONTAINER_RUNTIME
-container
+```nc:env-set
+CONTAINER_RUNTIME=container
 ```
 
 ### 4. Build and verify
@@ -138,3 +138,37 @@ own kernel is the stronger boundary.
   host error log for `Dropping nested file mount` lines — if a mount you added
   via `additionalMounts` is a FILE nested inside another mount, it was dropped
   (see apple/container#2148); mount the parent directory instead.
+
+## Two things that will cost you a day if nobody tells you
+
+**Never run `container system dns create <host> --localhost <ip>` on this runtime.** It removes
+the `com.apple.internet-sharing` nat anchor from the live pf ruleset — the anchor vmnet NATs
+containers through — so EVERY container instantly loses outbound internet. Deterministic, one
+command, independent of how many containers are running. It is not a DNS failure: names still
+resolve, only packets die. `container system dns delete` does NOT repair it, and
+`container system stop && start` is NOT sufficient either; recovery needs a container-network
+rebuild (stop containers and the apiserver, remove the persisted `networks` directory, restart)
+or a host reboot. Reach the host by its bridge-gateway IP instead, which needs no DNS entry at
+all — that is what `CONTAINER_HOST_GATEWAY` above is for. (apple/container#1241.)
+
+**Rebuilding leaks disk, and nothing reclaims it on its own.** Building an image under a tag
+that already exists orphans the previous unpacked snapshot, and the collector runs ONLY during
+`container image delete` and `container image prune`. An install that rebuilds its agent image
+often and never prunes accumulates them indefinitely — one host reached 134 GB of snapshots
+against ~8 GB of live image content, and a single prune returned 103 GB. This is
+apple/container#2164 and it is NOT fixed upstream: both fix PRs were closed unmerged, so no
+version bump retires it.
+
+`container/build.sh` sweeps after every successful build, overlay or pull. If you run builds by
+hand, prune yourself:
+
+```sh
+container image prune
+```
+
+**Dangling only — never `container image prune -a`.** Nothing is running at build time, so `-a`
+treats EVERY image as unused, including the one you just built and every other NanoClaw install
+sharing the runtime on that host. Recovering from that costs a `container builder delete` plus a
+`--no-cache` rebuild, because the builder caches the build context aggressively and neither
+remedy works alone. And a build exiting 0 is not evidence a bumped pin landed — verify inside
+the image (`container run --rm --entrypoint sh <image> -c 'ls -d /pnpm/global/5/.pnpm/<pkg>@*'`).
