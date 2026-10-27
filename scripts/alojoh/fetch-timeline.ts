@@ -19,6 +19,9 @@ import {
 import { extractTickers } from './tickers.js';
 
 const ALOJOH_URL = 'https://x.com/alojoh';
+// Stop an incremental fetch after this many already-stored posts in a row
+// (tolerates reposts or reordering near the top of the timeline).
+const KNOWN_STOP_STREAK = 3;
 const TWO_YEARS_AGO = new Date(
   Date.now() - 2 * 365.25 * 24 * 60 * 60 * 1000,
 ).toISOString();
@@ -66,6 +69,7 @@ async function fetchTimeline(opts: { backfill: boolean }): Promise<void> {
     let shouldStop = false;
     const seenIds = new Set<string>();
     let noNewScrolls = 0;
+    let knownInARow = 0;
 
     while (!shouldStop) {
       const articles = await page
@@ -91,11 +95,25 @@ async function fetchTimeline(opts: { backfill: boolean }): Promise<void> {
           seenIds.add(tweetId);
           newThisPass++;
 
-          // Incremental stop: hit a post we already have
+          // A pinned post sits above the timeline regardless of age; never
+          // let it trip the incremental stop (it masked every post after 10/7).
+          const isPinned = await article
+            .locator('[data-testid="socialContext"]')
+            .getByText(/pinned/i)
+            .count()
+            .then((c) => c > 0)
+            .catch(() => false);
+
+          // Incremental stop: a few consecutive posts we already have
           if (!opts.backfill && postExists(tweetId)) {
-            shouldStop = true;
-            break;
+            if (isPinned) continue;
+            if (++knownInARow >= KNOWN_STOP_STREAK) {
+              shouldStop = true;
+              break;
+            }
+            continue;
           }
+          knownInARow = 0;
 
           const datetime = await article
             .locator('time')
