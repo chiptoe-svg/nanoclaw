@@ -1,0 +1,180 @@
+#!/bin/bash
+set -euo pipefail
+
+# image-gen — Generate images via OpenAI's image generation API
+# Supports gpt-image-1 and dall-e-3 models.
+
+VERSION="1.0.0"
+
+usage() {
+  cat <<'USAGE'
+image-gen — Generate images with OpenAI
+
+Usage:
+  image-gen <prompt> [options]
+
+Options:
+  --model    gpt-image-1 | dall-e-3          (default: gpt-image-1)
+  --size     1024x1024 | 1536x1024 | ...     (default: 1024x1024)
+  --quality  low|medium|high or standard|hd   (default: medium/standard)
+  --output   output filename                  (default: auto-generated)
+  --help     Show this help
+USAGE
+}
+
+# Defaults
+MODEL="gpt-image-1"
+SIZE="1024x1024"
+QUALITY=""
+OUTPUT=""
+PROMPT=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --model)
+      MODEL="${2:-}"
+      [[ -z "$MODEL" ]] && { echo "Error: --model requires a value" >&2; exit 1; }
+      shift 2
+      ;;
+    --size)
+      SIZE="${2:-}"
+      [[ -z "$SIZE" ]] && { echo "Error: --size requires a value" >&2; exit 1; }
+      shift 2
+      ;;
+    --quality)
+      QUALITY="${2:-}"
+      [[ -z "$QUALITY" ]] && { echo "Error: --quality requires a value" >&2; exit 1; }
+      shift 2
+      ;;
+    --output)
+      OUTPUT="${2:-}"
+      [[ -z "$OUTPUT" ]] && { echo "Error: --output requires a value" >&2; exit 1; }
+      shift 2
+      ;;
+    --help|-h|help)
+      usage
+      exit 0
+      ;;
+    --version|-v|version)
+      echo "image-gen $VERSION"
+      exit 0
+      ;;
+    -*)
+      echo "Error: Unknown option: $1" >&2
+      exit 1
+      ;;
+    *)
+      if [[ -z "$PROMPT" ]]; then
+        PROMPT="$1"
+      else
+        PROMPT="$PROMPT $1"
+      fi
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$PROMPT" ]]; then
+  echo "Error: No prompt specified" >&2
+  usage >&2
+  exit 1
+fi
+
+if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+  echo "Error: OPENAI_API_KEY not set" >&2
+  exit 1
+fi
+
+# Validate model
+case "$MODEL" in
+  gpt-image-1|dall-e-3) ;;
+  *)
+    echo "Error: Unknown model: $MODEL (use gpt-image-1 or dall-e-3)" >&2
+    exit 1
+    ;;
+esac
+
+# Set default quality per model if not specified
+if [[ -z "$QUALITY" ]]; then
+  case "$MODEL" in
+    gpt-image-1) QUALITY="medium" ;;
+    dall-e-3)    QUALITY="standard" ;;
+  esac
+fi
+
+# Generate output filename if not specified
+if [[ -z "$OUTPUT" ]]; then
+  OUTPUT="generated-$(date +%Y%m%d-%H%M%S)-$RANDOM.png"
+fi
+
+echo "Generating image with $MODEL ($SIZE, quality=$QUALITY)..." >&2
+
+# Build request JSON
+if [[ "$MODEL" == "gpt-image-1" ]]; then
+  REQUEST_JSON=$(cat <<EOF
+{
+  "model": "$MODEL",
+  "prompt": $(printf '%s' "$PROMPT" | jq -Rs .),
+  "n": 1,
+  "size": "$SIZE",
+  "quality": "$QUALITY"
+}
+EOF
+)
+else
+  # dall-e-3
+  REQUEST_JSON=$(cat <<EOF
+{
+  "model": "$MODEL",
+  "prompt": $(printf '%s' "$PROMPT" | jq -Rs .),
+  "n": 1,
+  "size": "$SIZE",
+  "quality": "$QUALITY",
+  "response_format": "b64_json"
+}
+EOF
+)
+fi
+
+# Make API call
+RESPONSE=$(curl -sS -w "\n%{http_code}" \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "$REQUEST_JSON" \
+  "https://api.openai.com/v1/images/generations")
+
+# Split response body and status code
+HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+
+if [[ "$HTTP_CODE" -ne 200 ]]; then
+  ERROR_MSG=$(echo "$BODY" | jq -r '.error.message // "Unknown error"' 2>/dev/null || echo "$BODY")
+  echo "Error: OpenAI API returned $HTTP_CODE: $ERROR_MSG" >&2
+  exit 1
+fi
+
+# Extract and save image
+if [[ "$MODEL" == "gpt-image-1" ]]; then
+  # gpt-image-1 returns b64_json by default
+  B64_DATA=$(echo "$BODY" | jq -r '.data[0].b64_json // .data[0].url' 2>/dev/null)
+  if [[ "$B64_DATA" == http* ]]; then
+    # URL response — download it
+    curl -sS -o "$OUTPUT" "$B64_DATA"
+  else
+    echo "$B64_DATA" | base64 -d > "$OUTPUT"
+  fi
+else
+  # dall-e-3 with b64_json response_format
+  echo "$BODY" | jq -r '.data[0].b64_json' | base64 -d > "$OUTPUT"
+fi
+
+# Verify file was created and has content
+if [[ ! -s "$OUTPUT" ]]; then
+  echo "Error: Failed to save image" >&2
+  exit 1
+fi
+
+FILE_SIZE=$(du -h "$OUTPUT" | cut -f1)
+echo "Saved: $OUTPUT ($FILE_SIZE)" >&2
+echo "$OUTPUT"
