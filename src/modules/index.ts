@@ -24,6 +24,8 @@ import './interactive/index.js';
 import './permissions/index.js';
 import './agent-to-agent/index.js';
 import './self-mod/index.js';
-import './community-portal/index.js';
 import './alojoh/index.js';
 import './voice-transcription/index.js';
+import './model-command/index.js';
+// Keep community-portal last: its registration test reads the final onHostStart callback.
+import './community-portal/index.js';
