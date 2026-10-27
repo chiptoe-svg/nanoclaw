@@ -15,7 +15,10 @@ export function getAlojohDb(): Database.Database {
     fs.mkdirSync(ALOJOH_DIR, { recursive: true });
     const dbPath = path.join(ALOJOH_DIR, 'alojoh.db');
     db = new Database(dbPath);
-    db.exec('PRAGMA journal_mode=WAL');
+    // Rollback journal, not WAL: the agent reads this file with
+    // mode=ro&immutable=1, which ignores the -wal file, so WAL writes stayed
+    // invisible until a checkpoint. Single writer, twice a day — no WAL needed.
+    db.exec('PRAGMA journal_mode=DELETE');
     createSchema(db);
   }
   return db;
