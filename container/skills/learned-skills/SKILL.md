@@ -74,4 +74,14 @@ The host refuses a new skill that overlaps heavily with an existing learned skil
 
 ## Reviewing recent work
 
-When asked to review (for example by a scheduled task), look back over the recent conversation and your memory notes for the signals above. Check your learned skills (`ls -l ~/.claude/skills`, read the ones in the area). Propose at most two changes per review, updates before creations. "Nothing worth saving" is a good result; report it in one line.
+A scheduled skill review wakes you only when its gate script flagged heavy turns: past requests that took many tool calls and ended without a proposal. The task data lists them (`flagged`: `at`, `toolCalls`, `request`). For each:
+
+1. Read what actually happened: `bun /app/skills/learned-skills/show-turn.ts <at>`. Judge from the transcript, not from memory.
+2. Look for the signals above, and for waste: steps that failed and were retried, commands you had to look up, files you searched for, a slow route where a direct one existed. A procedure that would have made the turn take a third of the calls is worth keeping.
+3. Check your learned skills in that area (`ls -l ~/.claude/skills`, read the relevant ones) and decide update, create or nothing, using the order at the top.
+
+Propose at most two changes per review, updates before creations. A heavy turn is not automatically a lesson: research that needed many searches may simply have needed them. "Nothing worth saving" is a good result.
+
+Keep the whole review inside `<internal>…</internal>`. Don't message the user; the approval request already tells them what you proposed.
+
+Outside a scheduled review, if the user asks you to review recent work, do the same with the conversation you have, and reply to them normally.
