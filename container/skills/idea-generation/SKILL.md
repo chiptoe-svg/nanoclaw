@@ -3,6 +3,8 @@ name: idea-generation
 description: Systematic stock screening and investment idea sourcing. Combines quantitative screens, thematic research, and pattern recognition to surface new long and short ideas. Use when looking for new ideas, running screens, or conducting thematic sweeps. Triggers on "idea generation", "stock screen", "find ideas", "what looks interesting", "screen for", "new ideas", or "pitch me something".
 ---
 
+> **Data here:** screen candidates with `bun /app/skills/market-data/md.ts facts|history|chain`; check fit against Chip's caps with portfolio-risk before suggesting a position.
+
 # Idea Generation
 
 ## Workflow

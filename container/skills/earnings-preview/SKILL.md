@@ -3,6 +3,8 @@ name: earnings-preview
 description: Build pre-earnings analysis with estimate models, scenario frameworks, and key metrics to watch. Use before a company reports quarterly earnings to prepare positioning notes, set up bull/bear scenarios, and identify what will move the stock. Triggers on "earnings preview", "what to watch for [company] earnings", "pre-earnings", "earnings setup", or "preview Q[X] for [company]".
 ---
 
+> **Data here:** reported history from `bun /app/skills/market-data/md.ts facts <TICKER>`; the options-implied move from `md.ts chain <TICKER>` (at-the-money straddle for the first expiry after the report ÷ spot); consensus estimates via web search, with source and date.
+
 # Earnings Preview
 
 ## Workflow

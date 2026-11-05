@@ -3,6 +3,8 @@ name: catalyst-calendar
 description: Build and maintain a calendar of upcoming catalysts across a coverage universe — earnings dates, conferences, product launches, regulatory decisions, and macro events. Helps prioritize attention and position ahead of events. Triggers on "catalyst calendar", "upcoming events", "what's coming up", "earnings calendar", "event calendar", or "catalyst tracker".
 ---
 
+> **Data here:** filings and 8-Ks from `bun /app/skills/market-data/md.ts filings`; dates via web search and company IR pages (no Bloomberg/FactSet here).
+
 # Catalyst Calendar
 
 ## Workflow

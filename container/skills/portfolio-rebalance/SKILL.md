@@ -3,6 +3,8 @@ name: portfolio-rebalance
 description: Analyze portfolio allocation drift and generate rebalancing trade recommendations across accounts. Considers tax implications, transaction costs, and wash sale rules. Triggers on "rebalance", "portfolio drift", "allocation check", "rebalancing trades", or "my portfolio is out of balance".
 ---
 
+> **Data here:** holdings and targets per the my-portfolio skill; current values and delta-adjusted exposure from `bun /app/skills/market-data/md.ts positions`; drift and caps from `python3 /app/skills/portfolio-risk/risk.py`. Run any resulting trade through trade-decision.
+
 # Portfolio Rebalance
 
 ## Workflow

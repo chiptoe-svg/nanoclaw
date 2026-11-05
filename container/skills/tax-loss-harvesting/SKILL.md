@@ -3,6 +3,8 @@ name: tax-loss-harvesting
 description: Identify tax-loss harvesting opportunities across taxable accounts. Finds positions with unrealized losses, suggests replacement securities, and tracks wash sale windows. Triggers on "tax-loss harvesting", "TLH", "harvest losses", "tax losses", "unrealized losses", or "year-end tax planning".
 ---
 
+> **Data here:** lots and acquisition dates from `portfolio/holdings.csv` (my-portfolio); current prices and unrealised P/L from `bun /app/skills/market-data/md.ts positions`; wash-sale history from `portfolio/trades.md`. Python (pandas) is available for lot math.
+
 # Tax-Loss Harvesting
 
 ## Workflow
