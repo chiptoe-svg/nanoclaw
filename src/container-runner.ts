@@ -25,7 +25,7 @@ import {
   TIMEZONE,
 } from './config.js';
 import { CONTAINER_PLUGINS_DIR, materializeContainerJson } from './container-config.js';
-import { getContainerConfig } from './db/container-configs.js';
+import { getAllContainerConfigs, getContainerConfig } from './db/container-configs.js';
 import { updateContainerConfigScalars } from './db/container-configs.js';
 import { CONTAINER_RUNTIME_BIN } from './container-runtime.js';
 import { composeGroupProjectDoc, DEFAULT_PROJECT_DOC } from './project-doc-compose.js';
@@ -1668,4 +1668,54 @@ export async function buildAgentGroupImage(agentGroupId: string): Promise<void> 
   await updateContainerConfigScalars(agentGroup.id, { image_tag: imageTag });
 
   log.info('Per-agent-group image built', { agentGroupId, imageTag });
+}
+
+/**
+ * Rebuild per-agent-group images that were layered onto an older base.
+ *
+ * An update rebuilds the base image and nothing else, so a group with custom
+ * packages would keep running the pre-update base until someone passed
+ * `--rebuild`. Each derived image records its base's id in
+ * `dev.nanoclaw.derived-from`; any whose label no longer matches the current
+ * base (or that is missing, or predates the label) is rebuilt. Sequential and
+ * best-effort: a failed build leaves the previous image in place, and running
+ * containers keep theirs — the next spawn picks up the new one.
+ */
+export async function rebuildStaleAgentGroupImages(build = buildAgentGroupImage): Promise<void> {
+  if (!getSessionDriver().capabilities().imageBuild) return;
+  let baseId: string;
+  try {
+    baseId = (
+      await execAsync(`${CONTAINER_RUNTIME_BIN} image inspect --format '{{.Id}}' ${CONTAINER_IMAGE}`)
+    ).stdout.trim();
+  } catch {
+    return; // No base to compare against; spawns will fail loudly on their own.
+  }
+  for (const row of await getAllContainerConfigs()) {
+    // Only images buildAgentGroupImage produced; an operator-set tag is theirs.
+    if (row.image_tag !== `${CONTAINER_IMAGE_BASE}:${row.agent_group_id}`) continue;
+    let derivedFrom = '';
+    try {
+      const format = `'{{index .Config.Labels "dev.nanoclaw.derived-from"}}'`;
+      derivedFrom = (
+        await execAsync(`${CONTAINER_RUNTIME_BIN} image inspect --format ${format} ${row.image_tag}`)
+      ).stdout.trim();
+    } catch {
+      // Image gone: rebuild it.
+    }
+    if (derivedFrom === baseId) continue;
+    log.info('Rebuilding per-agent-group image on the current base', {
+      agentGroupId: row.agent_group_id,
+      was: derivedFrom || null,
+      base: baseId,
+    });
+    try {
+      await build(row.agent_group_id);
+    } catch (err) {
+      log.warn('Per-agent-group image rebuild failed; keeping the previous image', {
+        agentGroupId: row.agent_group_id,
+        err,
+      });
+    }
+  }
 }

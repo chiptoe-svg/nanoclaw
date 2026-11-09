@@ -10,6 +10,7 @@ import { enforceStartupBackoff, resetCircuitBreaker } from './circuit-breaker.js
 import {
   abortGatewaySessionObservers,
   adoptRunningSessions,
+  rebuildStaleAgentGroupImages,
   resumeGatewaySessionAdmission,
   stopGatewaySessionsForUnavailability,
 } from './container-runner.js';
@@ -200,6 +201,10 @@ async function main(): Promise<void> {
 
   // 9. Start the `ncl` CLI socket server (data/ncl.sock).
   await startCliServer();
+
+  // 10. Bring per-group images onto the current base (after an update rebuilt
+  // it). Background: builds take minutes and spawns meanwhile use the old image.
+  void rebuildStaleAgentGroupImages().catch((err) => log.warn('Stale per-group image check failed', { err }));
 
   log.info('NanoClaw running');
 }
