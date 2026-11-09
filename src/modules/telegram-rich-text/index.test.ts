@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { fixOutboundMessage } from './telegram-rich-text-hook.js';
+import { fixOutboundMessage } from './index.js';
 
 describe('fixOutboundMessage', () => {
   it('escapes plain chat text and edits', () => {

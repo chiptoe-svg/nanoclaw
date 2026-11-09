@@ -2,14 +2,19 @@
  * Applies fixTelegramRichText to every Telegram bot's outbound chat text.
  *
  * Lives outside telegram.ts because the add-telegram skill refresh replaces
- * that file with the channels-branch copy. Imported from the channel barrel
- * after './telegram.js', it re-registers each Telegram adapter with a factory
- * that wraps deliver(), keeping the original factory and defaults.
+ * that file with the channels-branch copy, and it registers from the modules
+ * barrel because the refresh reads every channel-barrel import as a channel
+ * skill. It re-registers each Telegram adapter with a factory that wraps
+ * deliver(), keeping the original factory and defaults.
  */
-import type { ChannelAdapter, OutboundMessage } from './adapter.js';
-import { getChannelDefaults, getRegisteredChannelNames, registerChannelAdapter } from './channel-registry.js';
-import { createTelegramBridge, telegramInstanceBridgeFactory } from './telegram.js';
-import { fixTelegramRichText } from './telegram-rich-text.js';
+import type { ChannelAdapter, OutboundMessage } from '../../channels/adapter.js';
+import {
+  getChannelDefaults,
+  getRegisteredChannelNames,
+  registerChannelAdapter,
+} from '../../channels/channel-registry.js';
+import { createTelegramBridge, telegramInstanceBridgeFactory } from '../../channels/telegram.js';
+import { fixTelegramRichText } from '../../channels/telegram-rich-text.js';
 
 /** Same messages the bridge's transformOutboundText would see: plain chat text and text edits. */
 export function fixOutboundMessage(message: OutboundMessage): OutboundMessage {

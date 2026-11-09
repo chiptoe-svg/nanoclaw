@@ -27,6 +27,7 @@ import './self-mod/index.js';
 import './skill-learning/index.js';
 import './alojoh/index.js';
 import './voice-transcription/index.js';
+import './telegram-rich-text/index.js';
 import './model-command/index.js';
 // Keep community-portal last: its registration test reads the final onHostStart callback.
 import './community-portal/index.js';
