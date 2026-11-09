@@ -8,3 +8,4 @@
 
 import './cli.js';
 import './telegram.js';
+import './telegram-rich-text-hook.js';
