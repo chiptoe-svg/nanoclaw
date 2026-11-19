@@ -167,6 +167,8 @@ export interface ChannelDeliveryAdapter {
     /** Delivering adapter instance (defaults to channelType downstream).
      *  Host-internal only — containers never see instance. */
     instance?: string,
+    /** Session and outbound row id, unique host-wide and the same on every retry: lets a split reply resume. */
+    deliveryId?: string,
   ): Promise<string | undefined>;
   setTyping?(
     channelType: string,
@@ -685,6 +687,7 @@ async function deliverMessage(
         channel_type: msg.channelType,
         thread_id: msg.threadId,
         title,
+        question: typeof content.question === 'string' ? content.question : '',
         options: normalizeOptions(rawOptions as never),
         created_at: new Date().toISOString(),
       });
@@ -714,6 +717,8 @@ async function deliverMessage(
     content.type === 'ask_question'
       ? JSON.stringify({ ...content, fromAgent: true })
       : withPlatformMessageId(content, msg.content, session.agent_group_id);
+  // A row id is unique only within its session's mailbox; the session id makes it unique host-wide.
+  const deliveryId = `${session.id}:${msg.id}`;
   const platformMsgId = await deliveryAdapter.deliver(
     msg.channelType,
     msg.platformId,
@@ -722,6 +727,7 @@ async function deliverMessage(
     deliveredContent,
     files,
     deliverInstance,
+    deliveryId,
   );
   log.info('Message delivered', {
     id: msg.id,
@@ -796,8 +802,7 @@ export function registerPostDeliveryHook(hook: PostDeliveryHook): void {
 export type DeliveryActionHandler = (content: Record<string, unknown>, session: Session) => Promise<void>;
 
 type DeliveryEntry =
-  | { guard: Unguarded; handler: DeliveryActionHandler }
-  | { guard: DeliveryGuardSpec; handler: GuardedDeliveryHandler };
+  { guard: Unguarded; handler: DeliveryActionHandler } | { guard: DeliveryGuardSpec; handler: GuardedDeliveryHandler };
 
 const deliveryActions = new Map<string, DeliveryEntry>();
 
