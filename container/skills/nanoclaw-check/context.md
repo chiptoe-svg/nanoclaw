@@ -24,6 +24,18 @@ Contributions flow upstream as standalone PRs (not fork-wide rebases). PR #1843 
 
 Each thread has: **state**, **what it's about**, **Chip's position/role**, **what a response should/shouldn't do**.
 
+### Issue #4543 — Network mailbox so session runners don't need a shared session dir
+
+- **State:** Open, posted 2026-11-23 by Chip. Mentions @zvi-fried (mailbox + gateway seams) and @gavrielc (driver seam).
+- **About:** Proposes a network-backed implementation of the agent mailbox seam: host serves the runner's `MailboxOperations` per session over an authenticated connection (snapshot/commit inside `run()`), so runners don't need the session dir mounted. Motivation: OpenShell sandboxes (OpenClaw worker-mode style), remote/hosted runners. Nothing built yet — it's a proposal.
+- **Chip's role:** Author. Waiting on maintainers to say whether a remote mailbox is already planned before prototyping.
+- **Response policy:** Any reply from a maintainer (gavrielc, zvi-fried, gabi-simons, omri-maya, moshe-nanoco, glifocat) is **RESPONSE-NEEDED — deliver right away**, quote it, and draft a short reply for Chip. Replies from non-maintainers: FYI unless they ask Chip something. Never post. Keep drafts short and plain; don't imply anything is built.
+
+### PR #4129 / PR #3503 — pi provider; Apple container driver
+
+- **State:** Both open, unreviewed by maintainers. (Z-Mackintosh comments on #4129 are from a community member, not a maintainer.)
+- **Response policy:** A maintainer review or comment is RESPONSE-NEEDED. Other activity FYI.
+
 ### PR #1843 — Codex provider via app-server JSON-RPC
 
 - **State:** Merged 2026-04-20 as commit `af542ad`. Six commits total on branch `feat/codex-provider`.
@@ -83,6 +95,10 @@ Each thread has: **state**, **what it's about**, **Chip's position/role**, **wha
 - Discord-active; publicly credited Chip and Tal Moskovitz in a Discord announcement on 2026-04-20 ("Special thanks to Tal Moskovitz and @chiptoe for the contributions").
 - Tone: decisive, time-constrained, appreciative of clean work.
 - What works with him: tight PR bodies, empirical validation, clear scope.
+
+### @zvi-fried — Core team
+
+- Wrote the gateway seam, Iron Proxy skill and agent mailbox seam (Aug-Sep 2026). Mentioned on #4543.
 
 ### @TeeJS — Active contributor
 

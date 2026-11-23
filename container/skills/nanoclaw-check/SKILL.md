@@ -41,7 +41,7 @@ Goal: find any new issues, PRs, comments, or reviews on `qwibitai/nanoclaw` sinc
 
 Strategy:
 
-1. **Check tracked threads** (numbers in context.md §Active threads — currently #1843, #1955, #1956, #1966, #1984, #1994, #1995). For each:
+1. **Check tracked threads** (numbers in context.md §Active threads — see context.md §Active threads; check.py TRACKED holds the current list). For each:
 
    ```bash
    gh issue view <N> --repo qwibitai/nanoclaw --json comments,state,closedAt
