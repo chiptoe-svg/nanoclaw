@@ -56,7 +56,21 @@ describe('operations round-trip', () => {
     await expect(bad.start({ agentGroupId: 'ag-1', sessionId: 'other', mailbox: null })).rejects.toThrow(
       /mismatch|rejected/,
     );
-    await expect(make().start(null)).rejects.toThrow(/context/);
+  });
+
+  test('start without a context file takes the session from options/env (OpenShell VMs)', async () => {
+    const m = make();
+    await m.start(null);
+    expect(m.getSessionRouting()).toBeDefined();
+    const saved = process.env.NANOCLAW_MAILBOX_SESSION;
+    delete process.env.NANOCLAW_MAILBOX_SESSION;
+    try {
+      await expect(make({ session: undefined, contextPath: '/nonexistent/ctx.json' }).start(null)).rejects.toThrow(
+        /session identity/,
+      );
+    } finally {
+      if (saved !== undefined) process.env.NANOCLAW_MAILBOX_SESSION = saved;
+    }
   });
 
   test('every op sends positional args and maps null to undefined only where typed', async () => {

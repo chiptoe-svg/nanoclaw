@@ -73,8 +73,15 @@ export class RemoteAgentMailbox implements AgentMailbox, MailboxOperations {
     return error instanceof MailboxAuthError;
   }
 
-  async start(key: MailboxSessionKey | null): Promise<void> {
-    if (!key) throw new Error('Remote mailbox requires the session context file');
+  async start(contextKey: MailboxSessionKey | null): Promise<void> {
+    // Runtimes that can't mount single files (OpenShell VMs) skip the context
+    // file; the session then comes from NANOCLAW_MAILBOX_SESSION.
+    let key = contextKey;
+    if (!key) {
+      const [agentGroupId, sessionId] = this.resolveSession().split('/');
+      if (!agentGroupId || !sessionId) throw new MailboxRpcError('no_session', 'malformed mailbox session identity');
+      key = { agentGroupId, sessionId, mailbox: null };
+    }
     this.client.session = `${key.agentGroupId}/${key.sessionId}`;
     const hello = this.rpc<{ agentGroupId?: string; sessionId?: string }>('hello');
     if (hello?.agentGroupId !== key.agentGroupId || hello?.sessionId !== key.sessionId) {

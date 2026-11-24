@@ -276,7 +276,8 @@ describe('translateSpec: env', () => {
     expect(plan.contributedEnv.NANOCLAW_MAILBOX_TOKEN).toBe('mbx-token');
     expect(
       plan.command[2].startsWith(
-        'export CURL_CA_BUNDLE="$NANOCLAW_RESTORE_CURL_CA_BUNDLE" && unset NANOCLAW_RESTORE_CURL_CA_BUNDLE && ' +
+        'export HOME=/home/node && ' +
+          'export CURL_CA_BUNDLE="$NANOCLAW_RESTORE_CURL_CA_BUNDLE" && unset NANOCLAW_RESTORE_CURL_CA_BUNDLE && ' +
           'export HTTPS_PROXY="$NANOCLAW_RESTORE_HTTPS_PROXY" && unset NANOCLAW_RESTORE_HTTPS_PROXY && ',
       ),
     ).toBe(true);
@@ -332,9 +333,9 @@ describe('translateSpec: policy', () => {
       nanoclaw_host: {
         name: 'nanoclaw_host',
         endpoints: [
-          { host: 'host.openshell.internal', ports: [18770] },
+          // One endpoint per host (OpenShell maps only the first per host);
           // CONNECT tunnels must bypass OpenShell's HTTP inspector.
-          { host: 'host.openshell.internal', ports: [18755], tls: 'skip' },
+          { host: 'host.openshell.internal', ports: [18770, 18755], tls: 'skip' },
         ],
         // Empty matches no binary; every agent tool needs the proxy.
         binaries: [{ path: '/**' }],

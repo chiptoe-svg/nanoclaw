@@ -201,7 +201,7 @@ describe('start', () => {
     expect(args.slice(args.indexOf('--') + 1)).toEqual([
       'bash',
       '-c',
-      'export HTTPS_PROXY="$NANOCLAW_RESTORE_HTTPS_PROXY" && unset NANOCLAW_RESTORE_HTTPS_PROXY && ' +
+      'export HOME=/home/node && export HTTPS_PROXY="$NANOCLAW_RESTORE_HTTPS_PROXY" && unset NANOCLAW_RESTORE_HTTPS_PROXY && ' +
         'export NODE_EXTRA_CA_CERTS="$NANOCLAW_RESTORE_NODE_EXTRA_CA_CERTS" && unset NANOCLAW_RESTORE_NODE_EXTRA_CA_CERTS && ' +
         "mkdir -p '/workspace' && ln -sfnT '/opt/nanoclaw-mounts/0-agent' '/workspace/agent' && exec bun run /app/src/index.ts",
     ]);

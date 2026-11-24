@@ -422,9 +422,12 @@ export function translateSpec(spec: SessionSpec, opts: TranslateOptions): Sandbo
   // that already exists as a real directory fails the boot loudly.
   const link = (from: string, to: string) =>
     `mkdir -p ${shellQuote(path.posix.dirname(to))} && ln -sfnT ${shellQuote(from)} ${shellQuote(to)}`;
-  const prelude: string[] = restores.map(
-    (key) => `export ${key}="$${RESTORE_PREFIX}${key}" && unset ${RESTORE_PREFIX}${key}`,
-  );
+  // OpenShell sets HOME=/sandbox; the agent image (and the /home/node/.claude
+  // mount) expects the image user's home.
+  const prelude: string[] = [
+    'export HOME=/home/node',
+    ...restores.map((key) => `export ${key}="$${RESTORE_PREFIX}${key}" && unset ${RESTORE_PREFIX}${key}`),
+  ];
   prelude.push(...relocated.map((r) => link(r.guestPath, r.containerPath)));
   for (const file of staged) {
     if (allValues.some((v) => v.includes(file.guestPath))) continue;
@@ -453,10 +456,15 @@ export function translateSpec(spec: SessionSpec, opts: TranslateOptions): Sandbo
   const ports = hostPorts(allValues);
   const endpoints: NetworkEndpoint[] = [];
   const plainPorts = ports.filter((p) => p !== forward?.listenPort);
-  if (plainPorts.length > 0) endpoints.push({ host: OPENSHELL_HOST, ports: plainPorts });
+  // One endpoint per host: OpenShell 0.1.9 DNS-maps only the first endpoint
+  // naming a host, so a second host.openshell.internal entry is unreachable.
   // A forward proxy speaks CONNECT, which OpenShell's HTTP inspector rejects
-  // ("request-target is not a valid origin-form path"); the tunnel is raw.
-  if (forward) endpoints.push({ host: OPENSHELL_HOST, ports: [forward.listenPort], tls: 'skip' });
+  // ("request-target is not a valid origin-form path"); `tls: skip` keeps the
+  // tunnel raw. The mailbox is plain HTTP, so skipping TLS inspection costs it nothing.
+  const hostPortList = forward ? [...plainPorts, forward.listenPort] : plainPorts;
+  if (hostPortList.length > 0) {
+    endpoints.push({ host: OPENSHELL_HOST, ports: hostPortList, ...(forward ? { tls: 'skip' as const } : {}) });
+  }
   const policy: OpenShellPolicy = {
     version: 1,
     filesystem_policy: { read_only: readOnly, read_write: readWrite },
