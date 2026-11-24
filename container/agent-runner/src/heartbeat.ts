@@ -1,5 +1,7 @@
 import fs from 'fs';
 
+import { sendRemoteHeartbeat } from './mailbox/remote/heartbeat.js';
+
 const DEFAULT_HEARTBEAT_PATH = '/workspace/.heartbeat';
 
 /**
@@ -13,6 +15,10 @@ export function heartbeatPath(): string {
 }
 
 export function touchHeartbeat(): void {
+  if (process.env.NANOCLAW_MAILBOX_URL) {
+    sendRemoteHeartbeat();
+    return;
+  }
   const heartbeat = heartbeatPath();
   const now = new Date();
   try {
