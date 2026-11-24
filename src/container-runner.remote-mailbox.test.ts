@@ -124,6 +124,8 @@ describe('remote mailbox spawn wiring', () => {
     const env = allEnv();
     expect(env.NANOCLAW_MAILBOX_URL).toBe('http://host.docker.internal:18999/v1/mailbox');
     expect(env.NANOCLAW_MAILBOX_SESSION).toBe('ag-remote/sess-1');
+    // Mailbox calls must not ride the credential gateway's proxy.
+    expect(env.NO_PROXY).toBe('host.docker.internal');
     expect(fs.existsSync(tokenFile('ag-remote'))).toBe(true);
     expect(verifyMailboxToken(`Bearer ${env.NANOCLAW_MAILBOX_TOKEN}`, 'ag-remote/sess-1')).toEqual({
       agentGroupId: 'ag-remote',
@@ -137,7 +139,7 @@ describe('remote mailbox spawn wiring', () => {
     expect(await wakeContainer(sessionOf('ag-plain'))).toBe(true);
 
     expect(workspaceMount().hostPath).toBe(path.join(ROOT, 'data', 'v2-sessions', 'ag-plain', 'sess-1'));
-    for (const k of ['NANOCLAW_MAILBOX_URL', 'NANOCLAW_MAILBOX_TOKEN', 'NANOCLAW_MAILBOX_SESSION']) {
+    for (const k of ['NANOCLAW_MAILBOX_URL', 'NANOCLAW_MAILBOX_TOKEN', 'NANOCLAW_MAILBOX_SESSION', 'NO_PROXY']) {
       expect(allEnv()[k]).toBeUndefined();
     }
     expect(fs.existsSync(path.join(ROOT, 'data', 'mailbox-tokens'))).toBe(false);

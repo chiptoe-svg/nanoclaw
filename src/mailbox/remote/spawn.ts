@@ -58,6 +58,12 @@ export function issueRemoteMailboxEnv(key: RemoteSessionKey): Record<string, str
     NANOCLAW_MAILBOX_URL: `http://host.docker.internal:${MAILBOX_PORT}/v1/mailbox`,
     NANOCLAW_MAILBOX_TOKEN: token,
     NANOCLAW_MAILBOX_SESSION: `${key.agentGroupId}/${key.sessionId}`,
+    // Bun's fetch honours HTTP(S)_PROXY, so without this the mailbox calls
+    // (and their bearer token) ride the credential gateway's proxy, which
+    // can't reach the host from inside an OpenShell VM. No gateway sets
+    // NO_PROXY today; this lane wins if one ever does.
+    NO_PROXY: 'host.docker.internal',
+    no_proxy: 'host.docker.internal',
   };
 }
 
