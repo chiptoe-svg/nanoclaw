@@ -42,7 +42,10 @@ keeps an already-running Docker container until it exits.
 
 1. **Docker compute driver on macOS can't use bind mounts**: Landlock denies all
    reads under Docker Desktop VirtioFS (OpenShell #4733, stale). Named volumes
-   work; Linux hosts are unaffected. → MicroVM driver on macOS.
+   work; Linux hosts are unaffected. → MicroVM driver on macOS. Switching Docker
+   Desktop's file sharing to gRPC FUSE is reported to fix it (confirmed by a
+   second user on #4733, 2026-11-24; not tested here) — but see "gRPC FUSE
+   trade-offs" below before choosing it.
 2. **OpenShell hard-blocks ports 2379, 2380, 6443, 10250, 10255** on named
    hosts; 10255 is OneCLI's proxy. → loopback forwarder 18755 → 10255.
 3. **Only the first policy endpoint per host is DNS-mapped.** → one
@@ -108,6 +111,50 @@ Cold-start breakdown in a VM (from message sent):
 Not causes: virtiofs file reads in general, Bun startup itself, first launch
 of the Claude binary (126 ms vs 5 ms).
 
+## Upstream state (checked 2026-11-24)
+
+- **OpenShell v0.1.10** (2026-11-24): weekly cadence continues (~120 merged
+  PRs and ~156 new issues per week, mostly NVIDIA staff). Repo is now
+  `ai-openshell/openshell`, images on `quay.io/ai-openshell`. Relevant: sandboxes
+  may set their own CPU affinity/nice/limits and signal themselves; a restart no
+  longer flips a starting sandbox to `Error`; **`openshell policy lint <file>`**
+  checks policies offline; OAuth refresh options, workspace secrets
+  (`--material-secret`), per-sandbox GitHub App tokens. Breaking changes were
+  Kubernetes/Helm only. The prototype still runs 0.1.9.
+- **TypeScript SDK `@ai-openshell/sdk` 0.1.10** — first real release
+  (2026-11-24, npm with provenance, repo `ai-openshell/sdk-typescript`; the old
+  `@nvidia/openshell-sdk` ends at 0.1.10). Covers sandbox create/exec/stream,
+  port forwards, templates, policy (static fields only at create), provider
+  credentials, mTLS/OIDC auth, plus a raw client (draft-policy approvals go
+  through it). Node ≥ 20.3. Version tracks the gateway's. pnpm's
+  `minimumReleaseAge` (3 days) blocks it until 2026-11-27 without an approved
+  exclusion.
+- Still open, unchanged: #4733 (Docker/VirtioFS mounts, stale), #4406
+  (per-request hold), VM bugs #5149 / #5507 / #5015, #4769 (stopped sandboxes
+  deleted after a driver change), #5200 (desktop drivers moving to
+  `ai-openshell/desktop`). VM suspend/resume still not implemented.
+
+## gRPC FUSE trade-offs (macOS Docker driver option)
+
+Switching Docker Desktop's file sharing from VirtioFS to gRPC FUSE reportedly
+lets OpenShell's Docker driver read bind mounts, but:
+
+- **It is global**: every container's bind mounts change, including all
+  existing NanoClaw agents on the plain Docker path.
+- **Slower file I/O**: gRPC FUSE is the older implementation that VirtioFS
+  replaced as the default largely for speed; metadata-heavy work (git,
+  `node_modules`, many small files) suffers most, and the Docker backend uses
+  more CPU.
+- **Correctness risk for NanoClaw's SQLite-over-mount design**: Docker-path
+  agents share `inbound.db` / `outbound.db` across the mount and depend on
+  `journal_mode=DELETE` cross-mount visibility. A different file-sharing
+  implementation has different caching and locking behaviour; this must be
+  re-tested before relying on it (agents on the remote mailbox are unaffected).
+- **Future support**: gRPC FUSE is the legacy option; it is not known how long
+  Docker Desktop will keep it.
+
+Prefer the MicroVM driver on macOS, or the Docker driver on a Linux host.
+
 ## Production backlog (ordered)
 
 1. **Credentials through OpenShell providers** instead of OneCLI: needs a real
@@ -120,8 +167,10 @@ of the Claude binary (126 ms vs 5 ms).
    agents; costs memory per idle VM).
 4. **Ship the runner pre-bundled in the image** (saves most of the 0.4 s and
    one share).
-5. **Event-driven status** (OpenShell watch stream) instead of 3-5 s polling for
-   exit detection.
+5. **Move the driver from the `openshell` CLI to `@ai-openshell/sdk`** once it
+   has a few releases (typed calls, mTLS, `WatchSandbox` stream → event-driven
+   status instead of 3-5 s polling for exit detection), and run
+   `openshell policy lint` (or its API) on every generated policy.
 6. **Read-only overlays** (`CLAUDE.md`, `container.json`, `plugins/`) become
    writable through their parent share in a VM; restore protection.
 7. **VM sizing** is gateway-wide (`vcpus`, `mem_mib`); per-session limits are
