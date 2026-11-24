@@ -77,6 +77,9 @@ export const OPENSHELL_RESERVED_ENV = new Set([
 ]);
 export const RESTORE_PREFIX = 'NANOCLAW_RESTORE_';
 
+/** CA-bundle variables OpenShell sets that must follow the gateway CA bundle. */
+export const OPENSHELL_CA_FOLLOWERS = ['CURL_CA_BUNDLE', 'GIT_SSL_CAINFO', 'REQUESTS_CA_BUNDLE'] as const;
+
 /** The agent image's runtime surface, readable by the workload. */
 export const BASE_READ_ONLY = ['/bin', '/usr', '/lib', '/proc', '/dev/urandom', '/etc', '/var/log', '/app', '/pnpm'];
 export const BASE_READ_WRITE = ['/tmp', '/dev/null', '/home/node', '/workspace'];
@@ -98,6 +101,12 @@ export interface TranslateOptions {
   /** Host loopback port of the driver's TCP forwarder to the gateway proxy. */
   forwardPort: number;
   probe: MountProbe;
+  /**
+   * The image's own ENV (Docker Config.Env). OpenShell starts the workload
+   * with its own PATH and ignores image ENV, which hides /pnpm globals such
+   * as agent-browser; the prelude exports these first (spec env still wins).
+   */
+  imageEnv?: Record<string, string>;
 }
 
 export interface VmMount {
@@ -424,9 +433,21 @@ export function translateSpec(spec: SessionSpec, opts: TranslateOptions): Sandbo
     `mkdir -p ${shellQuote(path.posix.dirname(to))} && ln -sfnT ${shellQuote(from)} ${shellQuote(to)}`;
   // OpenShell sets HOME=/sandbox; the agent image (and the /home/node/.claude
   // mount) expects the image user's home.
+  const specKeys = new Set([...Object.keys(finalEnv), ...Object.keys(finalContributed)]);
+  const imageExports = Object.entries(opts.imageEnv ?? {})
+    .filter(([key]) => key !== 'HOME' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) && !specKeys.has(key))
+    .map(([key, value]) => `export ${key}=${shellQuote(value)}`);
+  // OpenShell points these at its own CA bundle, but the agent's HTTPS goes
+  // through the credential gateway's proxy, which re-signs with the gateway
+  // CA — so follow the restored SSL_CERT_FILE unless the spec set them.
+  const caFollowers = restores.includes('SSL_CERT_FILE')
+    ? OPENSHELL_CA_FOLLOWERS.filter((key) => !specKeys.has(key)).map((key) => `export ${key}="$SSL_CERT_FILE"`)
+    : [];
   const prelude: string[] = [
     'export HOME=/home/node',
+    ...imageExports,
     ...restores.map((key) => `export ${key}="$${RESTORE_PREFIX}${key}" && unset ${RESTORE_PREFIX}${key}`),
+    ...caFollowers,
   ];
   prelude.push(...relocated.map((r) => link(r.guestPath, r.containerPath)));
   for (const file of staged) {

@@ -249,6 +249,29 @@ describe('translateSpec: mounts', () => {
 });
 
 describe('translateSpec: env', () => {
+  it('re-exports the image ENV OpenShell ignores, without overriding the spec or HOME', () => {
+    const plan = translateSpec(
+      realisticSpec(),
+      opts({
+        imageEnv: { PATH: '/pnpm:/usr/bin:/bin', PNPM_HOME: '/pnpm', HOME: '/root', SSL_CERT_FILE: '/image/ca.pem' },
+      }),
+    );
+    const script = plan.command[2];
+    expect(script).toContain("export PATH='/pnpm:/usr/bin:/bin'");
+    expect(script).toContain("export PNPM_HOME='/pnpm'");
+    expect(script).not.toContain('/root');
+    expect(script).not.toContain('/image/ca.pem');
+    expect(script.indexOf('export PATH=')).toBeLessThan(script.indexOf('exec bun'));
+  });
+
+  it('points the CA-bundle variables OpenShell sets at the restored gateway bundle', () => {
+    const script = translateSpec(realisticSpec(), opts()).command[2];
+    for (const key of ['CURL_CA_BUNDLE', 'GIT_SSL_CAINFO', 'REQUESTS_CA_BUNDLE']) {
+      expect(script).toContain(`export ${key}="$SSL_CERT_FILE"`);
+      expect(script.indexOf(`export ${key}=`)).toBeGreaterThan(script.indexOf('export SSL_CERT_FILE='));
+    }
+  });
+
   it('re-points every proxy URL at the forwarder and records the gateway port as its target', () => {
     const plan = translateSpec(realisticSpec(), opts());
     for (const key of ['HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy']) {

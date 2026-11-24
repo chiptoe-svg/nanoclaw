@@ -273,6 +273,7 @@ export class OpenShellSessionDriver implements SessionDriver {
       stagingFilesDir: path.join(stagingDir, 'files'),
       forwardPort: this.opts.forwardPort,
       probe: this.#probe,
+      imageEnv: await imageEnvOf(spec.containers[0]?.image),
     });
     for (const drop of plan.dropped) {
       log.debug('OpenShell: mount not realized separately', { name, ...drop });
@@ -625,4 +626,42 @@ class OpenShellHandle implements SessionHandle {
       argsPlain: ['sandbox', 'exec', '-n', this.name, '--no-tty', '--', ...command],
     };
   }
+}
+
+const imageEnvCache = new Map<string, Record<string, string>>();
+
+/**
+ * The image's Docker Config.Env. OpenShell ignores it (the VM starts with its
+ * own PATH), so the translation re-exports it. Best-effort: an image the local
+ * daemon can't inspect yields {} and the sandbox runs with OpenShell's env.
+ */
+async function imageEnvOf(image: string | undefined): Promise<Record<string, string>> {
+  if (!image) return {};
+  const cached = imageEnvCache.get(image);
+  if (cached) return cached;
+  const env = await new Promise<Record<string, string>>((resolve) => {
+    execFile(
+      'docker',
+      ['image', 'inspect', '--format', '{{json .Config.Env}}', image],
+      { timeout: 15_000 },
+      (err, stdout) => {
+        if (err) return resolve({});
+        try {
+          const entries = JSON.parse(stdout) as string[] | null;
+          resolve(
+            Object.fromEntries(
+              (entries ?? []).flatMap((entry) => {
+                const i = entry.indexOf('=');
+                return i > 0 ? [[entry.slice(0, i), entry.slice(i + 1)]] : [];
+              }),
+            ),
+          );
+        } catch {
+          resolve({});
+        }
+      },
+    );
+  });
+  imageEnvCache.set(image, env);
+  return env;
 }
