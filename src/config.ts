@@ -21,6 +21,8 @@ const envConfig = readEnvFile([
   'NANOCLAW_EGRESS_NETWORK',
   'NANOCLAW_REMOTE_MAILBOX_GROUPS',
   'NANOCLAW_MAILBOX_PORT',
+  'NANOCLAW_OPENSHELL_GROUPS',
+  'NANOCLAW_OPENSHELL_FORWARD_PORT',
   'WEBHOOK_PORT',
   'WEBHOOK_HOST',
   'NANOCLAW_ABSOLUTE_CEILING_MS',
@@ -127,6 +129,29 @@ export const REMOTE_MAILBOX_GROUPS: readonly string[] = (
 const mailboxPort = Number.parseInt(process.env.NANOCLAW_MAILBOX_PORT || envConfig.NANOCLAW_MAILBOX_PORT || '', 10);
 export const MAILBOX_PORT =
   Number.isInteger(mailboxPort) && mailboxPort > 0 && mailboxPort < 65536 ? mailboxPort : 18770;
+
+// OpenShell MicroVM sessions (prototype) — opt-in per agent group. Groups
+// listed here run as OpenShell sandboxes; everything else stays on Docker.
+// Every listed group must also be in NANOCLAW_REMOTE_MAILBOX_GROUPS. Empty =
+// feature fully off (the Docker driver is used as-is, unwrapped).
+export const OPENSHELL_GROUPS: readonly string[] = (
+  process.env.NANOCLAW_OPENSHELL_GROUPS ||
+  envConfig.NANOCLAW_OPENSHELL_GROUPS ||
+  ''
+)
+  .split(',')
+  .map((id) => id.trim())
+  .filter(Boolean);
+const openshellForwardPort = Number.parseInt(
+  process.env.NANOCLAW_OPENSHELL_FORWARD_PORT || envConfig.NANOCLAW_OPENSHELL_FORWARD_PORT || '',
+  10,
+);
+// Host loopback port of the forwarder that carries sandbox proxy traffic to
+// the credential gateway (OpenShell blocks the gateway's own port).
+export const OPENSHELL_FORWARD_PORT =
+  Number.isInteger(openshellForwardPort) && openshellForwardPort > 0 && openshellForwardPort < 65536
+    ? openshellForwardPort
+    : 18755;
 
 // Global overrides for the host sweep's two stuck-container timers (see
 // src/reconcile-session.ts). Raw strings: parsed and range-checked where they
