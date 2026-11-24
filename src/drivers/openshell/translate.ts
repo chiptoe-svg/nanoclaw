@@ -82,7 +82,8 @@ export const OPENSHELL_CA_FOLLOWERS = ['CURL_CA_BUNDLE', 'GIT_SSL_CAINFO', 'REQU
 
 /** The agent image's runtime surface, readable by the workload. */
 export const BASE_READ_ONLY = ['/bin', '/usr', '/lib', '/proc', '/dev/urandom', '/etc', '/var/log', '/app', '/pnpm'];
-export const BASE_READ_WRITE = ['/tmp', '/dev/null', '/home/node', '/workspace'];
+// /dev/shm: Chromium (agent-browser) creates its shared-memory regions there.
+export const BASE_READ_WRITE = ['/tmp', '/dev/null', '/dev/shm', '/home/node', '/workspace'];
 /** Where the entrypoint prelude may link a staged file into place. */
 const LINKABLE_ROOTS = ['/home/node', '/tmp', '/workspace'];
 

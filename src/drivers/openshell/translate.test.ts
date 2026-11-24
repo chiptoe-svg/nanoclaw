@@ -332,6 +332,7 @@ describe('translateSpec: policy', () => {
     expect(policy.filesystem_policy.read_write).toEqual([
       '/tmp',
       '/dev/null',
+      '/dev/shm',
       '/home/node',
       '/workspace',
       '/opt/nanoclaw-mounts/0-agent',
