@@ -43,9 +43,14 @@ async function exchange(env: Envelope): Promise<{ status: number; text: string }
         headers: {
           authorization: `Bearer ${token}`,
           'content-type': 'application/json',
+          // No pooled connections: after a host restart a kept-alive socket
+          // (notably through OpenShell's network proxy) can go dead without
+          // the guest seeing it, and the next call hangs until it times out.
+          connection: 'close',
           'x-nanoclaw-session': env.session,
         },
         signal: AbortSignal.timeout(env.timeoutMs),
+        keepalive: false,
       });
       return { status: response.status, text: await response.text() };
     } catch (error) {

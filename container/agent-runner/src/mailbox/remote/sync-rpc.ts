@@ -51,7 +51,9 @@ export interface CallOptions {
 }
 
 const HEADER_BYTES = 16;
-const DEFAULT_TIMEOUT_MS = 30_000;
+// Mailbox ops are quick local DB calls; a long timeout only delays recovery
+// from a dead connection. Host restarts are covered by the retry budget.
+const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_RETRY_BUDGET_MS = 60_000;
 const DEFAULT_BUFFER_BYTES = 16 * 1024 * 1024;
 
