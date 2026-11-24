@@ -264,6 +264,15 @@ describe('translateSpec: env', () => {
     expect(script.indexOf('export PATH=')).toBeLessThan(script.indexOf('exec bun'));
   });
 
+  it('defaults agent-browser to Chromium flags that work under OpenShell seccomp, unless the spec sets them', () => {
+    expect(translateSpec(realisticSpec(), opts()).command[2]).toContain(
+      "export AGENT_BROWSER_ARGS='--no-sandbox,--no-zygote'",
+    );
+    const spec = realisticSpec();
+    spec.containers[0].env.AGENT_BROWSER_ARGS = '--custom';
+    expect(translateSpec(spec, opts()).command[2]).not.toContain('--no-zygote');
+  });
+
   it('points the CA-bundle variables OpenShell sets at the restored gateway bundle', () => {
     const script = translateSpec(realisticSpec(), opts()).command[2];
     for (const key of ['CURL_CA_BUNDLE', 'GIT_SSL_CAINFO', 'REQUESTS_CA_BUNDLE']) {
@@ -343,6 +352,7 @@ describe('translateSpec: policy', () => {
       '/usr',
       '/lib',
       '/proc',
+      '/sys',
       '/dev/urandom',
       '/etc',
       '/var/log',

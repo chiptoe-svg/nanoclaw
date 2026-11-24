@@ -81,7 +81,19 @@ export const RESTORE_PREFIX = 'NANOCLAW_RESTORE_';
 export const OPENSHELL_CA_FOLLOWERS = ['CURL_CA_BUNDLE', 'GIT_SSL_CAINFO', 'REQUESTS_CA_BUNDLE'] as const;
 
 /** The agent image's runtime surface, readable by the workload. */
-export const BASE_READ_ONLY = ['/bin', '/usr', '/lib', '/proc', '/dev/urandom', '/etc', '/var/log', '/app', '/pnpm'];
+export const BASE_READ_ONLY = [
+  '/bin',
+  '/usr',
+  '/lib',
+  '/proc',
+  // /sys: Chromium reads CPU topology at startup ("Failed to initialize cpuinfo").
+  '/sys',
+  '/dev/urandom',
+  '/etc',
+  '/var/log',
+  '/app',
+  '/pnpm',
+];
 // /dev/shm: Chromium (agent-browser) creates its shared-memory regions there.
 export const BASE_READ_WRITE = ['/tmp', '/dev/null', '/dev/shm', '/home/node', '/workspace'];
 /** Where the entrypoint prelude may link a staged file into place. */
@@ -449,6 +461,11 @@ export function translateSpec(spec: SessionSpec, opts: TranslateOptions): Sandbo
     ...imageExports,
     ...restores.map((key) => `export ${key}="$${RESTORE_PREFIX}${key}" && unset ${RESTORE_PREFIX}${key}`),
     ...caFollowers,
+    // Chromium's own sandbox and zygote need user namespaces, which OpenShell's
+    // seccomp filter forbids; the VM, Landlock and seccomp already contain it.
+    ...(specKeys.has('AGENT_BROWSER_ARGS')
+      ? []
+      : [`export AGENT_BROWSER_ARGS=${shellQuote('--no-sandbox,--no-zygote')}`]),
   ];
   prelude.push(...relocated.map((r) => link(r.guestPath, r.containerPath)));
   for (const file of staged) {
