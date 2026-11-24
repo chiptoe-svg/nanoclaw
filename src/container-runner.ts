@@ -63,6 +63,7 @@ import {
   issueRemoteMailboxEnv,
   prepareRemoteWorkspace,
   releaseRemoteMailbox,
+  withdrawRemoteMailboxEnv,
 } from './mailbox/remote/spawn.js';
 import { stopTypingRefresh } from './modules/typing/index.js';
 import { log } from './log.js';
@@ -515,8 +516,8 @@ async function spawnContainer(session: Session): Promise<void> {
   let spec: SessionSpec;
   let claimIncarnation: number | null = null;
   try {
-    // Opt-in remote mailbox: a fresh token per spawn, revoked when the container
-    // ends (finish) or the spawn fails (catch blocks below).
+    // Opt-in remote mailbox: a fresh token per spawn; all tokens are revoked when
+    // the container ends (finish), only this one when the spawn fails below.
     if (isRemoteMailboxGroup(agentGroup.id)) remoteMailboxEnvironment = issueRemoteMailboxEnv(mailboxKey);
     if (gateway.containers?.length && !driver.capabilities().auxiliaryContainers) {
       // Named at composition, where the error can say which side to change —
@@ -553,7 +554,7 @@ async function spawnContainer(session: Session): Promise<void> {
     // touches the file itself.
     fs.rmSync(heartbeatPath(agentGroup.id, session.id), { force: true });
   } catch (err) {
-    if (remoteMailboxEnvironment) releaseRemoteMailbox(mailboxKey);
+    if (remoteMailboxEnvironment) withdrawRemoteMailboxEnv(mailboxKey, remoteMailboxEnvironment);
     if (claimIncarnation !== null) await releaseClaimQuietly(session.id, claimIncarnation);
     await releaseGatewaySession(gatewaySession, {
       kind: claimIncarnation === null ? 'host-detached' : 'session-ended',
@@ -566,7 +567,7 @@ async function spawnContainer(session: Session): Promise<void> {
   try {
     handle = await driver.prepare(spec);
   } catch (err) {
-    if (remoteMailboxEnvironment) releaseRemoteMailbox(mailboxKey);
+    if (remoteMailboxEnvironment) withdrawRemoteMailboxEnv(mailboxKey, remoteMailboxEnvironment);
     await releaseClaimQuietly(session.id, claimIncarnation);
     await releaseGatewaySession(gatewaySession, { kind: 'session-ended', reason: 'driver-prepare-failed' });
     throw err;

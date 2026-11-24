@@ -65,6 +65,20 @@ export function issueMailboxToken(key: RemoteSessionKey): string {
   return token;
 }
 
+/** Withdraw one issued token, leaving the session's other tokens valid. */
+export function withdrawMailboxToken(key: RemoteSessionKey, token: string): void {
+  if (!isValidSessionKey(key)) return;
+  const remaining = readHashes(key).filter((hash) => hash !== hashToken(token));
+  if (remaining.length === 0) {
+    fs.rmSync(tokenPath(key), { force: true });
+    return;
+  }
+  const file = tokenPath(key);
+  const tmp = `${file}.tmp-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+  fs.writeFileSync(tmp, remaining.join('\n') + '\n', { mode: 0o600 });
+  fs.renameSync(tmp, file);
+}
+
 export function revokeMailboxToken(key: RemoteSessionKey): void {
   if (!isValidSessionKey(key)) return;
   fs.rmSync(tokenPath(key), { force: true });

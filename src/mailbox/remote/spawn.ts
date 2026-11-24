@@ -24,7 +24,7 @@ import path from 'path';
 import { DATA_DIR, EGRESS_LOCKDOWN, MAILBOX_PORT, REMOTE_MAILBOX_GROUPS } from '../../config.js';
 import { log } from '../../log.js';
 import { isValidSessionKey, type RemoteSessionKey } from './ids.js';
-import { issueMailboxToken, revokeMailboxToken } from './tokens.js';
+import { issueMailboxToken, revokeMailboxToken, withdrawMailboxToken } from './tokens.js';
 
 export function isRemoteMailboxGroup(agentGroupId: string): boolean {
   return REMOTE_MAILBOX_GROUPS.includes(agentGroupId);
@@ -38,10 +38,13 @@ export function remoteWorkspaceDir(key: RemoteSessionKey): string {
   return path.join(DATA_DIR, 'v2-sessions', key.agentGroupId, '.remote-workspace', key.sessionId);
 }
 
-/** Fresh, empty scratch /workspace for one spawn. */
+/** The scratch /workspace for a remote-mailbox session (created if missing, never cleared here). */
 export function prepareRemoteWorkspace(key: RemoteSessionKey): string {
+  // Never clear it here: mounts are built before the session claim, and a
+  // spawn attempt can find the session's runtime still live (unadopted after a
+  // hard host kill) — wiping would delete that runtime's inbox/outbox.
+  // releaseRemoteMailbox() clears it when a runtime actually ends.
   const dir = remoteWorkspaceDir(key);
-  fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -89,4 +92,19 @@ export function warnIfRelayMustForwardMailbox(): void {
       `which must also forward port ${MAILBOX_PORT} to the host or opted-in containers cannot reach their mailbox`,
     { port: MAILBOX_PORT, groups: REMOTE_MAILBOX_GROUPS },
   );
+}
+
+/**
+ * A spawn attempt that failed (claim refused, driver refusal) withdraws only
+ * the token it issued. The session's other tokens and its scratch workspace
+ * may belong to a runtime that is still live; they go when that runtime ends.
+ */
+export function withdrawRemoteMailboxEnv(key: RemoteSessionKey, env: Record<string, string>): void {
+  const token = env.NANOCLAW_MAILBOX_TOKEN;
+  if (!token) return;
+  try {
+    withdrawMailboxToken(key, token);
+  } catch (err) {
+    log.warn('Remote mailbox token withdrawal failed', { ...key, err });
+  }
 }
