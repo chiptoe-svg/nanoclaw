@@ -28,7 +28,7 @@ describe('mailbox tokens', () => {
   it('stores only the sha256 hash, with 0700 dirs and a 0600 file', () => {
     const token = issueMailboxToken(KEY);
     const file = path.join(TEST_DIR, 'mailbox-tokens', 'ag-1', 'sess-1');
-    expect(fs.readFileSync(file, 'utf8')).toBe(crypto.createHash('sha256').update(token).digest('hex'));
+    expect(fs.readFileSync(file, 'utf8')).toBe(crypto.createHash('sha256').update(token).digest('hex') + '\n');
     expect(fs.readFileSync(file, 'utf8')).not.toContain(token);
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
     expect(fs.statSync(path.dirname(file)).mode & 0o777).toBe(0o700);
@@ -63,11 +63,14 @@ describe('mailbox tokens', () => {
     expect(verifyMailboxToken(`Bearer ${token}`, HEADER)).toBeNull();
   });
 
-  it('re-issuing replaces the old token', () => {
-    const first = issueMailboxToken(KEY);
-    const second = issueMailboxToken(KEY);
-    expect(verifyMailboxToken(`Bearer ${first}`, HEADER)).toBeNull();
-    expect(verifyMailboxToken(`Bearer ${second}`, HEADER)).toEqual(KEY);
+  it('re-issuing keeps a reused live runtime working: the newest few tokens stay valid', () => {
+    // prepare() is idempotent on key, so a spawn can reuse a runtime started
+    // with an earlier token (e.g. left unadopted after a hard host kill).
+    const tokens = Array.from({ length: 5 }, () => issueMailboxToken(KEY));
+    expect(verifyMailboxToken(`Bearer ${tokens[0]}`, HEADER)).toBeNull();
+    for (const token of tokens.slice(1)) expect(verifyMailboxToken(`Bearer ${token}`, HEADER)).toEqual(KEY);
+    revokeMailboxToken(KEY);
+    for (const token of tokens) expect(verifyMailboxToken(`Bearer ${token}`, HEADER)).toBeNull();
   });
 
   it('refuses to issue for malformed ids and never writes outside the token root', () => {
