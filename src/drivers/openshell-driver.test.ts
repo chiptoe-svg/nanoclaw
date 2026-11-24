@@ -193,6 +193,8 @@ describe('start', () => {
       '/workspace',
       '/opt/nanoclaw-mounts/0-agent',
       '/opt/nanoclaw-files',
+      // Driver-owned share for the runner's output (OpenShell doesn't capture it).
+      '/opt/nanoclaw-logs',
     ]);
     expect(args).toContain('--detach');
     expect(args).toContain('nanoclaw-session=s1');
@@ -201,7 +203,8 @@ describe('start', () => {
     expect(args.slice(args.indexOf('--') + 1)).toEqual([
       'bash',
       '-c',
-      'export HOME=/home/node && export HTTPS_PROXY="$NANOCLAW_RESTORE_HTTPS_PROXY" && unset NANOCLAW_RESTORE_HTTPS_PROXY && ' +
+      'exec > >(while IFS= read -r l; do printf \'%s %s\\n\' "$EPOCHREALTIME" "$l"; done >> /opt/nanoclaw-logs/runner.log) 2>&1 && ' +
+        'export HOME=/home/node && export HTTPS_PROXY="$NANOCLAW_RESTORE_HTTPS_PROXY" && unset NANOCLAW_RESTORE_HTTPS_PROXY && ' +
         'export NODE_EXTRA_CA_CERTS="$NANOCLAW_RESTORE_NODE_EXTRA_CA_CERTS" && unset NANOCLAW_RESTORE_NODE_EXTRA_CA_CERTS && ' +
         "export AGENT_BROWSER_ARGS='--no-sandbox,--no-zygote' && " +
         "mkdir -p '/workspace' && ln -sfnT '/opt/nanoclaw-mounts/0-agent' '/workspace/agent' && exec bun run /app/src/index.ts",

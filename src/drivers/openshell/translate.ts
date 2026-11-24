@@ -50,6 +50,9 @@ export const DOCKER_HOST = 'host.docker.internal';
 export const OPENSHELL_FILES_DIR = '/opt/nanoclaw-files';
 /** Guest directory nested directory mounts are relocated under (VM mounts cannot overlap). */
 export const OPENSHELL_MOUNTS_DIR = '/opt/nanoclaw-mounts';
+/** Guest dir of the driver-owned log share; the runner's output lands in runner.log. */
+export const OPENSHELL_LOGS_DIR = '/opt/nanoclaw-logs';
+export const RUNNER_LOG = 'runner.log';
 export const SESSION_CONTEXT_PATH = '/app/.nanoclaw-session.json';
 export const MAX_VM_MOUNTS = 32;
 /** OpenShell's own limit on one `--env` value. */
@@ -120,6 +123,12 @@ export interface TranslateOptions {
    * as agent-browser; the prelude exports these first (spec env still wins).
    */
   imageEnv?: Record<string, string>;
+  /**
+   * Host dir the runner's stdout/stderr is written to (OpenShell does not
+   * capture the workload's output). Each line is prefixed with
+   * $EPOCHREALTIME so start-up can be timed.
+   */
+  logsDir?: string;
 }
 
 export interface VmMount {
@@ -395,6 +404,9 @@ export function translateSpec(spec: SessionSpec, opts: TranslateOptions): Sandbo
   if (staged.length > 0) {
     mounts.push({ type: 'bind', source: opts.stagingFilesDir, target: OPENSHELL_FILES_DIR, read_only: true });
   }
+  if (opts.logsDir) {
+    mounts.push({ type: 'bind', source: opts.logsDir, target: OPENSHELL_LOGS_DIR, read_only: false });
+  }
   if (mounts.length > MAX_VM_MOUNTS) {
     throw specInvalid(`openshell VM supports at most ${MAX_VM_MOUNTS} mounts; spec needs ${mounts.length}`);
   }
@@ -457,6 +469,13 @@ export function translateSpec(spec: SessionSpec, opts: TranslateOptions): Sandbo
     ? OPENSHELL_CA_FOLLOWERS.filter((key) => !specKeys.has(key)).map((key) => `export ${key}="$SSL_CERT_FILE"`)
     : [];
   const prelude: string[] = [
+    // First, so the prelude's own failures are captured too. One timestamp per
+    // line without forking: bash's $EPOCHREALTIME.
+    ...(opts.logsDir
+      ? [
+          `exec > >(while IFS= read -r l; do printf '%s %s\\n' "$EPOCHREALTIME" "$l"; done >> ${OPENSHELL_LOGS_DIR}/${RUNNER_LOG}) 2>&1`,
+        ]
+      : []),
     'export HOME=/home/node',
     ...imageExports,
     ...restores.map((key) => `export ${key}="$${RESTORE_PREFIX}${key}" && unset ${RESTORE_PREFIX}${key}`),

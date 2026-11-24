@@ -273,6 +273,22 @@ describe('translateSpec: env', () => {
     expect(translateSpec(spec, opts()).command[2]).not.toContain('--no-zygote');
   });
 
+  it("captures the runner's output to the driver's log share, timestamped, only when given one", () => {
+    const plan = translateSpec(realisticSpec(), opts({ logsDir: '/host/logs/n1' }));
+    expect(plan.mounts).toContainEqual({
+      type: 'bind',
+      source: '/host/logs/n1',
+      target: '/opt/nanoclaw-logs',
+      read_only: false,
+    });
+    expect(plan.policy.filesystem_policy.read_write).toContain('/opt/nanoclaw-logs');
+    expect(plan.command[2].startsWith('exec > >(while IFS= read -r l; do printf')).toBe(true);
+    expect(plan.command[2]).toContain('"$EPOCHREALTIME"');
+    const bare = translateSpec(realisticSpec(), opts());
+    expect(bare.mounts.map((m) => m.target)).not.toContain('/opt/nanoclaw-logs');
+    expect(bare.command[2]).not.toContain('EPOCHREALTIME');
+  });
+
   it('points the CA-bundle variables OpenShell sets at the restored gateway bundle', () => {
     const script = translateSpec(realisticSpec(), opts()).command[2];
     for (const key of ['CURL_CA_BUNDLE', 'GIT_SSL_CAINFO', 'REQUESTS_CA_BUNDLE']) {

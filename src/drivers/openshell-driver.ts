@@ -32,6 +32,7 @@ import { log } from '../log.js';
 import { validateRuntimeName } from './cli.js';
 import { startForwarder, type Forwarder } from './openshell/forwarder.js';
 import {
+  RUNNER_LOG,
   sandboxName,
   sandboxNamePrefix,
   translateSpec,
@@ -244,6 +245,11 @@ export class OpenShellSessionDriver implements SessionDriver {
     return path.join(this.opts.stagingRoot, name);
   }
 
+  /** Runner output for one sandbox name; kept after stop (unlike staging) for diagnosis. */
+  logsDir(name: string): string {
+    return path.join(path.dirname(this.opts.stagingRoot), 'openshell-logs', name);
+  }
+
   async prepare(spec: SessionSpec): Promise<SessionHandle> {
     validateSpec(spec, this.#policy, this.capabilities());
     const name = validateRuntimeName(sandboxName(spec.key, this.#prefix), 'sandbox');
@@ -268,7 +274,12 @@ export class OpenShellSessionDriver implements SessionDriver {
     }
 
     const stagingDir = this.stagingDir(name);
+    const logsDir = this.logsDir(name);
+    fs.mkdirSync(logsDir, { recursive: true, mode: 0o700 });
+    const runnerLog = path.join(logsDir, RUNNER_LOG);
+    if (fs.existsSync(runnerLog)) fs.renameSync(runnerLog, path.join(logsDir, `prev-${RUNNER_LOG}`));
     const plan = translateSpec(spec, {
+      logsDir,
       name,
       stagingFilesDir: path.join(stagingDir, 'files'),
       forwardPort: this.opts.forwardPort,
@@ -568,6 +579,7 @@ export class OpenShellSessionDriver implements SessionDriver {
 }
 
 class OpenShellHandle implements SessionHandle {
+  #loggedFailure = false;
   #started: boolean;
   #stopping = false;
   #stopPromise: Promise<void> | undefined;
@@ -600,7 +612,16 @@ class OpenShellHandle implements SessionHandle {
     const doc = await this.driver.getSandbox(this.name);
     if (!doc) return this.plan && !this.#started ? { phase: 'ready' } : { phase: 'stopped' };
     if (this.#stopping) return { phase: 'stopped' };
-    return mapSandboxPhase(doc.phase, doc.exit_code).status;
+    const mapped = mapSandboxPhase(doc.phase, doc.exit_code);
+    if (mapped.status.phase === 'failed' && !this.#loggedFailure) {
+      this.#loggedFailure = true;
+      log.warn('Sandbox runner exited non-zero', {
+        name: this.name,
+        exitCode: doc.exit_code,
+        outputTail: tailLines(path.join(this.driver.logsDir(this.name), RUNNER_LOG), 15),
+      });
+    }
+    return mapped.status;
   }
 
   stop(reason: string): Promise<void> {
@@ -664,4 +685,22 @@ async function imageEnvOf(image: string | undefined): Promise<Record<string, str
   });
   imageEnvCache.set(image, env);
   return env;
+}
+
+/** Last `n` lines of a runner log, or [] when absent. Bounded read: the log is append-only. */
+function tailLines(file: string, n: number): string[] {
+  try {
+    const size = fs.statSync(file).size;
+    const fd = fs.openSync(file, 'r');
+    try {
+      const len = Math.min(size, 16_384);
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, size - len);
+      return buf.toString('utf8').split('\n').filter(Boolean).slice(-n);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return [];
+  }
 }
