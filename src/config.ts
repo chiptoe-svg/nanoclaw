@@ -19,6 +19,8 @@ const envConfig = readEnvFile([
   'CONTAINER_PIDS_LIMIT',
   'NANOCLAW_EGRESS_LOCKDOWN',
   'NANOCLAW_EGRESS_NETWORK',
+  'NANOCLAW_REMOTE_MAILBOX_GROUPS',
+  'NANOCLAW_MAILBOX_PORT',
   'WEBHOOK_PORT',
   'WEBHOOK_HOST',
   'NANOCLAW_ABSOLUTE_CEILING_MS',
@@ -110,6 +112,21 @@ export const CONTAINER_PIDS_LIMIT = process.env.CONTAINER_PIDS_LIMIT ?? envConfi
 export const EGRESS_LOCKDOWN = (process.env.NANOCLAW_EGRESS_LOCKDOWN || envConfig.NANOCLAW_EGRESS_LOCKDOWN) === 'true';
 export const EGRESS_NETWORK =
   process.env.NANOCLAW_EGRESS_NETWORK || envConfig.NANOCLAW_EGRESS_NETWORK || 'nanoclaw-egress';
+
+// Remote agent mailbox (prototype) — opt-in per agent group. Groups listed here
+// get no session-directory mount; their runner reaches its mailbox over HTTP
+// through the host service (src/mailbox/remote). Empty = feature fully off.
+export const REMOTE_MAILBOX_GROUPS: readonly string[] = (
+  process.env.NANOCLAW_REMOTE_MAILBOX_GROUPS ||
+  envConfig.NANOCLAW_REMOTE_MAILBOX_GROUPS ||
+  ''
+)
+  .split(',')
+  .map((id) => id.trim())
+  .filter(Boolean);
+const mailboxPort = Number.parseInt(process.env.NANOCLAW_MAILBOX_PORT || envConfig.NANOCLAW_MAILBOX_PORT || '', 10);
+export const MAILBOX_PORT =
+  Number.isInteger(mailboxPort) && mailboxPort > 0 && mailboxPort < 65536 ? mailboxPort : 18770;
 
 // Global overrides for the host sweep's two stuck-container timers (see
 // src/reconcile-session.ts). Raw strings: parsed and range-checked where they
