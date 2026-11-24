@@ -89,6 +89,38 @@ keeps an already-running Docker container until it exits.
   dummy token. Pending-rule approval via gRPC (`GetDraftPolicy`,
   `ApproveDraftChunk`) works; a rule goes live ~15-20 s after approval.
 
+## Upgrade and failure tests (2026-11-24, OpenShell v0.1.10)
+
+- **Upgrade 0.1.9 → 0.1.10** (installer diff: repo rename only): gateway config
+  kept; running VMs re-provisioned on their own in ~40 s (same sandbox, restart
+  count 0); full regression (tools, file, fresh VM 4.2 s, kill/respawn) passed
+  with no driver change.
+- **OpenShell gateway stopped**: its VMs die with it. NanoClaw can't see them
+  while the gateway is down, so messages wait silently; on gateway start
+  OpenShell re-creates the sandbox from its record and the waiting message is
+  answered ~5 s later. No NanoClaw action needed.
+- **Docker Desktop restart**: VMs don't depend on Docker, but OneCLI does;
+  NanoClaw's rule "credential gateway unavailable → stop all sessions" stops
+  the VMs too (by design). Fresh VM on the next message. Moving credentials to
+  OpenShell providers would remove this dependency.
+- **Host hard kill (`kill -9`)**: the dead host's session claim is honoured for
+  ~2 min, so the new host skips adoption and refuses wakes in that window
+  (NanoClaw core, same for Docker). Two remote-mailbox bugs found and fixed:
+  a spawn re-issued (replaced) the session token while `prepare()` reused the
+  still-live runtime → runtime locked out; and each refused spawn wiped the
+  scratch `/workspace` and revoked all tokens. Now tokens accumulate (newest 4
+  valid, all revoked when the runtime ends), the workspace is never cleared at
+  spawn, and a failed spawn withdraws only its own token.
+- **Reply after a host restart** took ~28 s: the first mailbox call hung on a
+  kept-alive connection that went dead behind OpenShell's proxy. Fixed
+  (`Connection: close`, 10 s call timeout): ~8.5 s now; the call that was in
+  flight at the moment of the restart still waits out one timeout.
+- **Memory**: one running VM ≈ 1.4 GB host RSS (relevant to keeping idle VMs
+  alive).
+- **Soak test** started 2026-11-24 17:27: hourly task `vm-soak-5935` on the lab
+  group (new VM per run). Check runs/failures, leftover sandboxes, VM memory,
+  `data/openshell-logs/`, and `logs/nanoclaw.error.log`.
+
 ## Performance (same prompt, lab agent)
 
 | | Docker | MicroVM |
