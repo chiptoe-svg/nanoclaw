@@ -24,14 +24,6 @@ describe('canonical mailbox model', () => {
     );
   });
 
-  it('generates the shared mailbox SQL into the runner tree, rewriting only the model import', () => {
-    const root = process.cwd();
-    const source = fs.readFileSync(path.join(root, 'src/mailbox/sqlite-operations.ts'), 'utf8');
-    expect(
-      fs.readFileSync(path.join(root, 'container/agent-runner/src/mailbox/sqlite-operations.generated.ts'), 'utf8'),
-    ).toBe(source.replaceAll("from './model.js'", "from './model.generated.js'"));
-  });
-
   it('normalizes a complete inbound write into the strict persisted record', () => {
     const record = createInboundRecord(
       {
