@@ -10,6 +10,7 @@
  * at-most-once terminal, honest corpses, failure taxonomy, describe-only exec —
  * are asserted here against the same contract.
  */
+import { AsyncLocalStorage } from 'async_hooks';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -400,5 +401,20 @@ describe('surface', () => {
     await expect(driver.ensureReady!()).resolves.toBeUndefined();
     cli.statusOutput = 'Status: Disconnected';
     await expect(driver.ensureReady!()).rejects.toMatchObject({ kind: 'runtime-unavailable' });
+  });
+});
+
+describe('event delivery context', () => {
+  it("delivers events outside the emitter's async context (no inherited mailbox scope)", () => {
+    // stop() runs inside a session's mailbox scope (the idle sweep); a subscriber
+    // that queues a reconcile must not inherit it, or the reconcile trips the
+    // nested-mailbox-session guard.
+    const scope = new AsyncLocalStorage<string>();
+    const seen: Array<string | undefined> = [];
+    const key = { installSlug: 'inst', agentGroupId: 'ag-1', sessionId: 's1' };
+    const watch = raw.watchSessions('inst', () => seen.push(scope.getStore()));
+    scope.run('held-mailbox-scope', () => raw.emit({ key, kind: 'terminal' }));
+    watch.stop();
+    expect(seen).toEqual([undefined]);
   });
 });

@@ -21,6 +21,7 @@
  * Only sandboxes carrying this install's labels are ever listed, stopped or
  * reaped — other sandboxes on the gateway are invisible to this driver.
  */
+import { AsyncResource } from 'async_hooks';
 import { execFile } from 'child_process';
 import fs from 'fs';
 import path from 'path';
@@ -430,11 +431,23 @@ export class OpenShellSessionDriver implements SessionDriver {
     this.#schedulePoll(installSlug, watch, this.#pollMs);
   }
 
+  /**
+   * Async context captured at construction (host startup, outside any mailbox
+   * session). Events are delivered in it, never in the caller's: stop() is
+   * called from inside a session's mailbox scope (the idle sweep), and a
+   * reconcile queued by the subscriber would otherwise inherit that scope and
+   * trip the nested-mailbox-session guard. Docker's events arrive from its own
+   * `docker events` stream, so it never had this coupling.
+   */
+  readonly #eventScope = new AsyncResource('openshell-session-events');
+
   /** Handle-observed transitions ride the same stream as poll hints. */
   readonly emit = (event: SessionEvent): void => {
     const watch = this.#watches.get(event.key.installSlug);
     if (!watch) return;
-    for (const subscriber of watch.subscribers) subscriber(event);
+    this.#eventScope.runInAsyncScope(() => {
+      for (const subscriber of watch.subscribers) subscriber(event);
+    });
   };
 
   async reapResidue(installSlug: string): Promise<void> {
