@@ -128,11 +128,11 @@ describe('translateSpec: mounts', () => {
     ]);
   });
 
-  it('drops the remote-mailbox heartbeat file and its env so the runner heartbeats over RPC', () => {
+  it('keeps the remote-mailbox heartbeat directory as a writable VM mount, env unchanged', () => {
     const spec = realisticSpec();
-    const hb = `${D}/v2-sessions/g1/.remote-workspace/sess-1.heartbeat`;
-    spec.containers[0].mounts.push(mount(hb, '/app/.nanoclaw-heartbeat'));
-    spec.containers[0].env.NANOCLAW_HEARTBEAT_PATH = '/app/.nanoclaw-heartbeat';
+    const hb = `${D}/v2-sessions/g1/.remote-workspace/sess-1.hb`;
+    spec.containers[0].mounts.push(mount(hb, '/opt/nanoclaw-heartbeat'));
+    spec.containers[0].env.NANOCLAW_HEARTBEAT_PATH = '/opt/nanoclaw-heartbeat/heartbeat';
     const withHb = probe(
       [
         `${D}/v2-sessions/g1/.remote-workspace/sess-1`,
@@ -141,6 +141,7 @@ describe('translateSpec: mounts', () => {
         G,
         `${D}/v2-sessions/g1/.claude-shared`,
         `${G}/plugins`,
+        hb,
       ],
       [
         `${D}/v2-sessions/g1/sess-1/session.json`,
@@ -148,18 +149,18 @@ describe('translateSpec: mounts', () => {
         `${D}/onecli/ca-def.pem`,
         `${G}/CLAUDE.md`,
         `${G}/container.json`,
-        hb,
       ],
     );
     const plan = translateSpec(spec, opts({ probe: withHb }));
-    expect(plan.dropped).toContainEqual({
-      containerPath: '/app/.nanoclaw-heartbeat',
-      hostPath: hb,
-      reason: 'heartbeat-via-rpc',
-      readOnlyLost: false,
+    expect(plan.mounts).toContainEqual({
+      type: 'bind',
+      source: hb,
+      target: '/opt/nanoclaw-heartbeat',
+      read_only: false,
     });
-    expect(plan.staged.map((f) => f.target)).not.toContain('/app/.nanoclaw-heartbeat');
-    expect(effectiveEnv(plan).NANOCLAW_HEARTBEAT_PATH).toBeUndefined();
+    expect(plan.policy.filesystem_policy.read_write).toContain('/opt/nanoclaw-heartbeat');
+    expect(plan.dropped.map((d) => d.containerPath)).not.toContain('/opt/nanoclaw-heartbeat');
+    expect(effectiveEnv(plan).NANOCLAW_HEARTBEAT_PATH).toBe('/opt/nanoclaw-heartbeat/heartbeat');
   });
 
   it('stages files no parent covers and rewrites every env value naming them', () => {
@@ -473,12 +474,13 @@ function openshellCredentialSpec(): SessionSpec {
     no_proxy: 'host.docker.internal',
   };
   agent.mounts = agent.mounts.filter((m) => !m.hostPath.includes('/onecli/'));
+  // `credentialProviders` is a key only on installs whose gateway attaches OpenShell providers.
   return {
     ...spec,
     containers: [agent],
     networkAccess: { endpoint: 'host.openshell.internal', target: { kind: 'host' } },
     credentialProviders: ['nc-claude-lab', 'nc-github-lab'],
-  };
+  } as SessionSpec & { credentialProviders: string[] };
 }
 
 describe('translateSpec: OpenShell credential providers', () => {

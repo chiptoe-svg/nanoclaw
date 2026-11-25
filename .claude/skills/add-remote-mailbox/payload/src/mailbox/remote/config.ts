@@ -9,12 +9,19 @@
  *   runner reaches its mailbox over HTTP instead of a mounted session
  *   directory. Empty = feature fully off.
  * - NANOCLAW_MAILBOX_PORT: loopback port of the host service (default 18770).
+ * - NANOCLAW_REMOTE_MAILBOX_INNER_DRIVER: the registered session driver the
+ *   `remote-mailbox` driver wraps (default `docker`).
  */
 import { readEnvFile } from '../../env.js';
 
-const KEYS = ['NANOCLAW_REMOTE_MAILBOX_GROUPS', 'NANOCLAW_MAILBOX_PORT'] as const;
+const KEYS = [
+  'NANOCLAW_REMOTE_MAILBOX_GROUPS',
+  'NANOCLAW_MAILBOX_PORT',
+  'NANOCLAW_REMOTE_MAILBOX_INNER_DRIVER',
+] as const;
 
 export const DEFAULT_MAILBOX_PORT = 18770;
+export const DEFAULT_INNER_DRIVER = 'docker';
 
 function read(key: (typeof KEYS)[number], env: NodeJS.ProcessEnv): string {
   return env[key] || readEnvFile([...KEYS])[key] || '';
@@ -36,3 +43,5 @@ export const REMOTE_MAILBOX_GROUPS: readonly string[] = parseRemoteMailboxGroups
   read('NANOCLAW_REMOTE_MAILBOX_GROUPS', process.env),
 );
 export const MAILBOX_PORT: number = parseMailboxPort(read('NANOCLAW_MAILBOX_PORT', process.env));
+export const REMOTE_MAILBOX_INNER_DRIVER: string =
+  read('NANOCLAW_REMOTE_MAILBOX_INNER_DRIVER', process.env).trim().toLowerCase() || DEFAULT_INNER_DRIVER;

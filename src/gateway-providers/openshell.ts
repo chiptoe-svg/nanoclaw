@@ -17,10 +17,11 @@
  * Every other group is served by the install's gateway exactly as before; with
  * the setting empty the install gateway is returned unwrapped.
  */
-import { OPENSHELL_CREDENTIALS_RAW, OPENSHELL_GROUPS } from '../config.js';
+import { OPENSHELL_GROUPS } from '../drivers/openshell/config.js';
 import { OPENSHELL_HOST } from '../drivers/openshell/translate.js';
 import { realOpenShellCli, type OpenShellCli } from '../drivers/openshell-driver.js';
 import { CREDENTIAL_PROVIDER_NAME } from '../drivers/types.js';
+import { readEnvFile } from '../env.js';
 import { log } from '../log.js';
 
 import {
@@ -32,6 +33,11 @@ import {
 import { partitionGatewayProvider } from './partition.js';
 
 const SETTING = 'NANOCLAW_OPENSHELL_CREDENTIALS';
+
+/** Raw setting: `process.env` wins, then `.env`. Parsed and checked when the gateway is selected. */
+function readCredentialsSetting(): string {
+  return process.env[SETTING] || readEnvFile([SETTING])[SETTING] || '';
+}
 const NOT_FOUND = /not found|NotFound|does not exist/i;
 
 /** `<agentGroupId>:<provider>[+<provider>…]`, comma-separated. Throws on anything malformed. */
@@ -155,7 +161,7 @@ export function withOpenShellCredentialGroups(
 
 registerGatewayPartition((base) =>
   withOpenShellCredentialGroups(base, {
-    raw: OPENSHELL_CREDENTIALS_RAW,
+    raw: readCredentialsSetting(),
     openshellGroups: OPENSHELL_GROUPS,
     cli: () => realOpenShellCli(),
   }),

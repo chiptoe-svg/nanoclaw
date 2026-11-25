@@ -9,7 +9,6 @@ export interface FakeHost {
   ctl<T = any>(body: Record<string, unknown>): Promise<T>;
   dump(): Promise<{
     log: Array<{ op: string; args: unknown[]; session: string | null; id: number }>;
-    heartbeats: number;
     inboxReads: number;
     outbound: Array<Record<string, any>>;
     outbox: Record<string, { data: string; complete: boolean; chunks: number }>;

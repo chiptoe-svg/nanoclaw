@@ -10,26 +10,40 @@ related upstream question is nanocoai/nanoclaw#4543.
 | Piece                         | Where                                                                                         | Purpose                                                                                                                                                                                                                                                                               |
 | ----------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Remote agent mailbox (host)   | `src/mailbox/remote/`                                                                         | Serves the runner's `MailboxOperations` over HTTP on `127.0.0.1:18770`, against the unchanged SQLite session DBs. Per-session bearer tokens (sha256 on disk in `data/mailbox-tokens/`), per-session serialization, idempotent `writeMessageOut`, symlink-proof inbox/outbox file ops. |
-| Remote agent mailbox (runner) | `container/agent-runner/src/mailbox/remote/`                                                  | Synchronous calls via a worker thread + `Atomics.wait` (request ids, timeouts, retry), inbox sync, outbox upload, heartbeat. Session comes from `NANOCLAW_MAILBOX_SESSION` when there is no context file.                                                                             |
+| Remote agent mailbox (runner) | `container/agent-runner/src/mailbox/remote/`                                                  | Synchronous calls via a worker thread + `Atomics.wait` (request ids, timeouts, retry), inbox sync, outbox upload. Session comes from `NANOCLAW_MAILBOX_SESSION` when there is no context file.                                                                                        |
 | OpenShell session driver      | `src/drivers/openshell-driver.ts`, `src/drivers/openshell/{translate,composite,forwarder}.ts` | Drives the `openshell` CLI. Translates a NanoClaw spec to a sandbox (mounts, env, policy, entrypoint prelude), adopts sandboxes after a host restart, captures runner output. A composite driver routes only opted-in groups to OpenShell.                                            |
 
-The remote mailbox is installed by the `/add-remote-mailbox` skill
-(`.claude/skills/add-remote-mailbox/`), which also selects its session driver
-with `NANOCLAW_RUNTIME_DRIVER=remote-mailbox`. That driver wraps `docker`, and
-the OpenShell composite sits inside `docker`, so an OpenShell group gets the
-remote-mailbox spec rewrite first; `translate.ts` then drops the heartbeat file
-mount and `NANOCLAW_HEARTBEAT_PATH` (a MicroVM cannot mount single files), and
-the runner heartbeats over the mailbox RPC instead
-(`container/agent-runner/src/heartbeat.ts`, fork shim).
+Both pieces ship as skills. `/add-remote-mailbox`
+(`.claude/skills/add-remote-mailbox/`) installs the remote mailbox and its
+`remote-mailbox` session driver; `/add-openshell` (`.claude/skills/add-openshell/`)
+installs the OpenShell driver, its settings module
+(`src/drivers/openshell/config.ts`) and registers the driver kind `openshell`
+(`src/drivers/openshell/register.ts`, one import appended to
+`src/drivers/installed.ts`): the `docker` driver with the listed groups routed
+to OpenShell, or `docker` itself when none is listed. The drivers stack with
+`remote-mailbox` outermost: it wraps whatever
+`NANOCLAW_REMOTE_MAILBOX_INNER_DRIVER` names (default `docker`), so an
+OpenShell group gets the remote-mailbox spec rewrite first and `translate.ts`
+then realizes it.
+
+Heartbeat: the mailbox driver mounts a per-session directory
+(`data/v2-sessions/<group>/.remote-workspace/<session>.hb/`) at
+`/opt/nanoclaw-heartbeat` and points `NANOCLAW_HEARTBEAT_PATH` at the
+`heartbeat` file in it, hard-linked to `<sessionDir>/.heartbeat`. A MicroVM
+mounts directories, so VMs and Docker containers use the same file; the
+runner's RPC-heartbeat shim and the service's `heartbeat` op are gone. Checked
+live (2026-11-25, `nc-dev-` sandbox): `fs.utimesSync` from Bun inside the VM
+moved the host link's mtime within 0.4-0.9 s every time (same inode, link
+count 2); same check in Docker.
 
 Opt-in (`.env`), all required for an OpenShell group:
 
 ```
 NANOCLAW_RUNTIME_DRIVER=remote-mailbox
+NANOCLAW_REMOTE_MAILBOX_INNER_DRIVER=openshell
 NANOCLAW_REMOTE_MAILBOX_GROUPS=<agentGroupId,...>
 NANOCLAW_OPENSHELL_GROUPS=<agentGroupId,...>
 # optional: NANOCLAW_MAILBOX_PORT=18770  NANOCLAW_OPENSHELL_FORWARD_PORT=18755
-# optional: NANOCLAW_OPENSHELL_IDLE_MINUTES=120   (keep idle VMs alive longer; see below)
 ```
 
 Rollback: remove those lines and restart. A group switched Docker→OpenShell
@@ -142,7 +156,7 @@ keeps an already-running Docker container until it exits.
 ## Remote mailbox on plain Docker + OneCLI (2026-11-25)
 
 The remote mailbox needs no OpenShell. With the group in
-`NANOCLAW_REMOTE_MAILBOX_GROUPS` and *not* in `NANOCLAW_OPENSHELL_GROUPS`, lab
+`NANOCLAW_REMOTE_MAILBOX_GROUPS` and _not_ in `NANOCLAW_OPENSHELL_GROUPS`, lab
 ran in an ordinary Docker container behind OneCLI and the relay, with no
 session DB mounted (`/workspace/inbound.db` absent). All passed:
 
@@ -174,19 +188,19 @@ setting empty, the selected gateway object is used as it is, with no wrapper.
 
 **A partition over the selected gateway, not a second gateway.** The seam
 still selects one gateway per install (`NANOCLAW_GATEWAY_PROVIDER=onecli`).
-`src/gateway-providers/openshell.ts` registers a *partition*
+`src/gateway-providers/openshell.ts` registers a _partition_
 (`registerGatewayPartition`, used by `getGatewayProvider`). The partition wraps
 the OneCLI definition with `partitionGatewayProvider`
 (`src/gateway-providers/partition.ts`), so every per-group question goes to
 the side that serves that group:
 
-| Question | OneCLI groups | OpenShell-credential groups |
-|---|---|---|
-| `sessions.ensure` (the lease) | OneCLI, unchanged | provider names only: `credentialProviders`, `networkAccess: host` |
-| `sessions.gatedByApprovals(group)` (new, optional) | true | false |
-| `agentSkillsFor(group)` (new, optional) | `onecli-gateway` | none (not told about a proxy it is not behind) |
-| `connections.connect` | OneCLI | `unsupported` |
-| `kind`, `approvals`, `availability` | OneCLI's, as before | not used |
+| Question                                           | OneCLI groups       | OpenShell-credential groups                                       |
+| -------------------------------------------------- | ------------------- | ----------------------------------------------------------------- |
+| `sessions.ensure` (the lease)                      | OneCLI, unchanged   | provider names only: `credentialProviders`, `networkAccess: host` |
+| `sessions.gatedByApprovals(group)` (new, optional) | true                | false                                                             |
+| `agentSkillsFor(group)` (new, optional)            | `onecli-gateway`    | none (not told about a proxy it is not behind)                    |
+| `connections.connect`                              | OneCLI              | `unsupported`                                                     |
+| `kind`, `approvals`, `availability`                | OneCLI's, as before | not used                                                          |
 
 Why a partition and not a second registered gateway: core runs one approval
 coordinator and one availability state, and both are install-wide. A second
@@ -195,7 +209,7 @@ install's only approval bridge and only exempts the groups that never go
 through it. The other option, OpenShell as the only gateway, would move Felix
 off OneCLI, which is out of scope.
 
-**Typed, not argv.** The lease gives provider *names*
+**Typed, not argv.** The lease gives provider _names_
 (`GatewayContribution.credentialProviders`). Composition copies them into
 `SessionSpec.credentialProviders`, and that key exists only for these groups.
 Only a driver that declares `capabilities().credentialProviders` may realize
@@ -203,7 +217,7 @@ it. `validateSpec` refuses the spec on any other driver (Docker), and also
 refuses names that are not plain (`[A-Za-z0-9][A-Za-z0-9._-]{0,62}`). The
 OpenShell driver passes `--provider <name>` for each name, plus
 `--no-auto-providers`. That flag matters: without it, the CLI could create a
-missing provider from the *host's* environment.
+missing provider from the _host's_ environment.
 
 **What the sandbox gets.** No OneCLI proxy env, no CA or stub mounts, no
 loopback forwarder, and no `tls: skip` endpoint. OpenShell injects each
@@ -328,7 +342,7 @@ logged-in machine prints `sk-ant-oat…`). Run these from `~/nanoclaw-v2`:
   intended route.
 - **Startup still waits for OneCLI.** The host waits for the OneCLI approval
   subscription before it adopts or spawns anything. If OneCLI is down at host
-  start, OpenShell-credential groups wait too. Only outages *after* startup
+  start, OpenShell-credential groups wait too. Only outages _after_ startup
   are scoped per group.
 - **No approvals** for OpenShell-credential groups (see the hook above). The
   OpenShell side has no health lease, so an OpenShell gateway outage shows up
@@ -338,6 +352,7 @@ logged-in machine prints `sk-ant-oat…`). Run these from `~/nanoclaw-v2`:
   container skill describing the OpenShell credentials.
 - The real setup-token has not been tested yet: only the dummy-token echo
   check above has.
+
 ## Policy lint and idle keep-alive (small prototype changes)
 
 - **Policy lint**: after writing `policy.yaml`, `prepare()` runs
@@ -354,12 +369,11 @@ default 30 min, declared Bash timeout)` kills the container ("Stopping idle
   SDK events, not while idle polling, so an idle session ends ~30 min after
   its last turn. The runner has no idle exit (`poll-loop.ts` exits only on a
   mailbox-failure streak). Claim-stuck (60 s) concerns claimed messages only.
-- **Keep-alive**: `NANOCLAW_OPENSHELL_IDLE_MINUTES` (1..1440, default off)
-  raises that ceiling, never lowers it, for groups in
-  `NANOCLAW_OPENSHELL_GROUPS` only; Docker groups use the unchanged global
-  ceiling. Cost: one running VM is about 1.4 GB host RSS, per idle session,
-  for the whole window. It also delays the reaping of a genuinely hung VM
-  (without a claimed message) up to the same window.
+- **Keep-alive** (`NANOCLAW_OPENSHELL_IDLE_MINUTES`, a core edit in
+  `src/reconcile-session.ts`) was dropped when the runtime moved into the
+  `/add-openshell` skill: it was off on the live install and was the only
+  OpenShell reach-in into the host sweep. An idle VM ends with the global
+  ceiling like any container. A per-group keep-alive would need a core hook.
 
 ## Performance (same prompt, lab agent)
 
@@ -435,8 +449,9 @@ Prefer the MicroVM driver on macOS, or the Docker driver on a Linux host.
 2. **Approvals**: bridge OpenShell pending rules to NanoClaw approval cards
    (rule-level; OpenShell has no per-request hold, #4406), and persist approved
    rules into the group's policy so new sandboxes don't re-ask.
-3. **Keep idle VMs alive longer**: opt-in knob done (`NANOCLAW_OPENSHELL_IDLE_MINUTES`);
-   still open: per-group setting, a memory-aware cap on concurrent idle VMs.
+3. **Keep idle VMs alive longer**: the prototype knob
+   (`NANOCLAW_OPENSHELL_IDLE_MINUTES`) was dropped with the move to a skill;
+   needs a core hook, a per-group setting and a memory-aware cap.
 4. **Ship the runner pre-bundled in the image** (saves most of the 0.4 s and
    one share).
 5. **Move the driver from the `openshell` CLI to `@ai-openshell/sdk`** once it

@@ -1,0 +1,9 @@
+{
+  "notes": "Conformance fixtures for scripts/skill-conformance.test.ts — shaped fake group ids only. Shell execution is stubbed by the harness.",
+  "scenarios": [
+    {
+      "name": "one group",
+      "inputs": { "openshell_groups": "ag-123" }
+    }
+  ]
+}

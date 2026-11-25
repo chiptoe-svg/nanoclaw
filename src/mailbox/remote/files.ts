@@ -1,6 +1,6 @@
 /**
- * File operations of the remote mailbox: heartbeat, inbox listing/reading and
- * chunked outbox writes.
+ * File operations of the remote mailbox: inbox listing/reading and chunked
+ * outbox writes.
  *
  * The session directory is agent-writable in the local deployment, so every
  * access goes through AnchoredDir: each component is opened by descriptor with
@@ -47,28 +47,6 @@ function errnoOf(err: unknown): string | undefined {
   return (err as NodeJS.ErrnoException | null)?.code;
 }
 
-/**
- * Set `name`'s mtime to now, creating it if absent. Refuses a symlink or a
- * non-regular leaf (`openReadFd` opens with O_NOFOLLOW and checks the type).
- * The host owns the file, so a read-only descriptor may set its times.
- */
-function touchEntry(dir: AnchoredDir, name: string): void {
-  let fd: number;
-  try {
-    fd = dir.openReadFd(name);
-  } catch (err) {
-    if (errnoOf(err) !== 'ENOENT') throw err;
-    dir.appendFile(name, '');
-    fd = dir.openReadFd(name);
-  }
-  try {
-    const now = new Date();
-    fs.futimesSync(fd, now, now);
-  } finally {
-    fs.closeSync(fd);
-  }
-}
-
 /** Move regular file `from` to `to` inside `dir`. Whatever held `to` (a planted symlink too) is removed, never followed. */
 function moveEntry(dir: AnchoredDir, from: string, to: string): void {
   try {
@@ -85,18 +63,6 @@ function openRejecting(root: string, segments: string[], create: boolean): Ancho
     return AnchoredDir.open(root, segments, create);
   } catch (err) {
     throw new PathRejectedError(`refused: ${err instanceof Error ? err.message : String(err)}`);
-  }
-}
-
-export function touchHeartbeat(key: RemoteSessionKey): void {
-  const dir = openRejecting(sessionRoot(key), [], false);
-  if (!dir) throw new PathRejectedError('session directory missing');
-  try {
-    touchEntry(dir, '.heartbeat');
-  } catch (err) {
-    throw new PathRejectedError(`refused: ${err instanceof Error ? err.message : String(err)}`);
-  } finally {
-    dir.close();
   }
 }
 

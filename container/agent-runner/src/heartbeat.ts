@@ -1,8 +1,5 @@
 import fs from 'fs';
 
-// OpenShell prototype only; the module ships with /add-remote-mailbox.
-import { sendRemoteHeartbeat } from './mailbox/remote/heartbeat.js';
-
 const DEFAULT_HEARTBEAT_PATH = '/workspace/.heartbeat';
 
 /**
@@ -16,13 +13,6 @@ export function heartbeatPath(): string {
 }
 
 export function touchHeartbeat(): void {
-  // OpenShell prototype only (fork shim, not part of /add-remote-mailbox): a
-  // MicroVM cannot mount the heartbeat file, so its sessions carry the
-  // remote-mailbox env without NANOCLAW_HEARTBEAT_PATH and heartbeat over RPC.
-  if (process.env.NANOCLAW_MAILBOX_URL && !process.env.NANOCLAW_HEARTBEAT_PATH) {
-    sendRemoteHeartbeat();
-    return;
-  }
   const heartbeat = heartbeatPath();
   const now = new Date();
   try {

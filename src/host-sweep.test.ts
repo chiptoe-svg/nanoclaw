@@ -21,7 +21,6 @@ import {
   decideStuckAction,
   shouldCloseTaskSession,
 } from './host-sweep.js';
-import { openshellIdleCeilingMs } from './reconcile-session.js';
 import type { Session } from './types.js';
 import { parseIsoTimestamp } from './mailbox/model.js';
 import { wrapSqliteInbound, wrapSqliteOutbound } from './mailbox/sqlite/index.js';
@@ -33,37 +32,6 @@ const JUST_OVER_CEILING_MS = ABSOLUTE_CEILING_MS + 1;
 function claim(id: string, offsetMs: number) {
   return { messageId: id, statusChanged: new Date(BASE - offsetMs).toISOString() };
 }
-
-describe('OpenShell idle keep-alive', () => {
-  it('only applies to listed OpenShell groups, and only when set', () => {
-    expect(openshellIdleCeilingMs('g1', ['g1'], 120)).toBe(120 * 60_000);
-    expect(openshellIdleCeilingMs('docker-g', ['g1'], 120)).toBeUndefined();
-    expect(openshellIdleCeilingMs('g1', ['g1'], 0)).toBeUndefined();
-    expect(openshellIdleCeilingMs('g1', [], 120)).toBeUndefined();
-  });
-
-  it('keeps an idle VM past the global ceiling but still reaps it at its own', () => {
-    const idleCeilingMs = 120 * 60_000;
-    const args = { now: BASE, containerState: null, claims: [], idleCeilingMs };
-    expect(decideStuckAction({ ...args, heartbeatMtimeMs: BASE - JUST_OVER_CEILING_MS })).toEqual({ action: 'ok' });
-    expect(decideStuckAction({ ...args, heartbeatMtimeMs: BASE - idleCeilingMs - 1 })).toMatchObject({
-      action: 'kill-ceiling',
-      ceilingMs: idleCeilingMs,
-    });
-  });
-
-  it('never lowers the ceiling and leaves undefined (Docker) unchanged', () => {
-    expect(
-      decideStuckAction({
-        now: BASE,
-        heartbeatMtimeMs: BASE - JUST_OVER_CEILING_MS,
-        containerState: null,
-        claims: [],
-        idleCeilingMs: 60_000,
-      }),
-    ).toMatchObject({ action: 'kill-ceiling', ceilingMs: ABSOLUTE_CEILING_MS });
-  });
-});
 
 describe('decideStuckAction', () => {
   it('runs against the built-in defaults', () => {

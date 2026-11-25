@@ -17,6 +17,7 @@ const fake = vi.hoisted(() => ({
   listed: [] as unknown[],
   driver: null as unknown,
   lockdown: false,
+  inner: 'docker',
 }));
 
 vi.mock('../../config.js', async () => {
@@ -33,7 +34,14 @@ vi.mock('../../config.js', async () => {
 });
 vi.mock('./config.js', async () => {
   const actual = await vi.importActual<typeof import('./config.js')>('./config.js');
-  return { ...actual, REMOTE_MAILBOX_GROUPS: ['ag-remote'], MAILBOX_PORT: 18999 };
+  return {
+    ...actual,
+    REMOTE_MAILBOX_GROUPS: ['ag-remote'],
+    MAILBOX_PORT: 18999,
+    get REMOTE_MAILBOX_INNER_DRIVER() {
+      return fake.inner;
+    },
+  };
 });
 vi.mock('../../drivers/index.js', async () => {
   const actual = await vi.importActual<typeof import('../../drivers/index.js')>('../../drivers/index.js');
@@ -61,6 +69,7 @@ import { resetGatewayProvider } from '../../gateway-providers/index.js';
 import { heartbeatPath } from '../../session-manager.js';
 import type { Session } from '../../types.js';
 import {
+  REMOTE_HEARTBEAT_CONTAINER_DIR,
   REMOTE_HEARTBEAT_CONTAINER_PATH,
   REMOTE_MAILBOX_DRIVER_KIND,
   rewriteRemoteMailboxSpec,
@@ -68,10 +77,11 @@ import {
   withRemoteMailbox,
 } from './driver.js';
 import { log } from '../../log.js';
-import { issueRemoteMailboxEnv, remoteHeartbeatFile, sessionHeartbeatPath } from './spawn.js';
+import { issueRemoteMailboxEnv, remoteHeartbeatDir, remoteHeartbeatFile, sessionHeartbeatPath } from './spawn.js';
 import { verifyMailboxToken } from './tokens.js';
 import { mailboxForwarderName } from './forwarder.js';
 import { fixtureSpec } from '../../drivers/spec-fixture.js';
+import { registerSessionDriver } from '../../drivers/driver-registry.js';
 
 const CAPS: DriverCapabilities = {
   isolationTiers: ['container'],
@@ -142,6 +152,7 @@ beforeEach(async () => {
   fake.stops = [];
   fake.listed = [];
   fake.lockdown = false;
+  fake.inner = 'docker';
   fake.driver = withSessionEvents(withRemoteMailbox(inner));
   resetGatewayProvider({
     kind: 'fixture',
@@ -179,6 +190,16 @@ describe('registration', () => {
     const driver = createSessionDriver(REMOTE_MAILBOX_DRIVER_KIND);
     expect(driver.kind).toMatch(/^remote-mailbox\(docker/);
   });
+
+  it('wraps the driver NANOCLAW_REMOTE_MAILBOX_INNER_DRIVER names instead', () => {
+    registerSessionDriver('stub-inner', () => ({ ...inner, kind: 'stub-inner' }));
+    fake.inner = 'stub-inner';
+    expect(createSessionDriver(REMOTE_MAILBOX_DRIVER_KIND).kind).toBe('remote-mailbox(stub-inner)');
+    fake.inner = 'absent';
+    expect(() => createSessionDriver(REMOTE_MAILBOX_DRIVER_KIND)).toThrow(/no 'absent' driver/);
+    fake.inner = REMOTE_MAILBOX_DRIVER_KIND;
+    expect(() => createSessionDriver(REMOTE_MAILBOX_DRIVER_KIND)).toThrow(/cannot name the remote-mailbox driver/);
+  });
 });
 
 describe('spawn through the real container-runner', () => {
@@ -200,14 +221,16 @@ describe('spawn through the real container-runner', () => {
     const targets = agentOf(spec).mounts.map((m) => m.containerPath);
     expect(targets).toEqual(expect.arrayContaining(['/workspace/agent', '/app/.nanoclaw-session.json']));
 
-    // Heartbeat: bound file, named by env, hard-linked where the sweep reads it.
-    // Core deletes the session heartbeat before prepare(); the link surviving
-    // proves prepare() ran after that delete.
-    expect(mountAt(spec, REMOTE_HEARTBEAT_CONTAINER_PATH)).toMatchObject({
-      hostPath: remoteHeartbeatFile(remoteKey),
+    // Heartbeat: a file in a bound directory, named by env, hard-linked where
+    // the sweep reads it. Core deletes the session heartbeat before prepare();
+    // the link surviving proves prepare() ran after that delete.
+    expect(mountAt(spec, REMOTE_HEARTBEAT_CONTAINER_DIR)).toMatchObject({
+      hostPath: remoteHeartbeatDir(remoteKey),
       mode: 'rw',
       class: 'group-state',
     });
+    expect(REMOTE_HEARTBEAT_CONTAINER_PATH).toBe(`${REMOTE_HEARTBEAT_CONTAINER_DIR}/heartbeat`);
+    expect(path.dirname(remoteHeartbeatFile(remoteKey))).toBe(remoteHeartbeatDir(remoteKey));
     expect(agentOf(spec).env.NANOCLAW_HEARTBEAT_PATH).toBe(REMOTE_HEARTBEAT_CONTAINER_PATH);
     expect(sessionHeartbeatPath(remoteKey)).toBe(heartbeatPath('ag-remote', 'sess-1'));
     expect(fs.statSync(heartbeatPath('ag-remote', 'sess-1')).ino).toBe(fs.statSync(remoteHeartbeatFile(remoteKey)).ino);
@@ -225,7 +248,7 @@ describe('spawn through the real container-runner', () => {
     expect(await wakeContainer(sessionOf('ag-plain'))).toBe(true);
     const spec = lastSpec();
     expect(mountAt(spec, '/workspace')?.hostPath).toBe(path.join(ROOT, 'data', 'v2-sessions', 'ag-plain', 'sess-1'));
-    expect(mountAt(spec, REMOTE_HEARTBEAT_CONTAINER_PATH)).toBeUndefined();
+    expect(mountAt(spec, REMOTE_HEARTBEAT_CONTAINER_DIR)).toBeUndefined();
     for (const k of [
       'NANOCLAW_MAILBOX_URL',
       'NANOCLAW_MAILBOX_TOKEN',
@@ -249,7 +272,7 @@ describe('spawn through the real container-runner', () => {
     expect(fs.existsSync(tokenFile('ag-remote'))).toBe(false);
     expect(verifyMailboxToken(`Bearer ${token}`, 'ag-remote/sess-1')).toBeNull();
     expect(fs.existsSync(scratchDir)).toBe(false);
-    expect(fs.existsSync(remoteHeartbeatFile(remoteKey))).toBe(false);
+    expect(fs.existsSync(remoteHeartbeatDir(remoteKey))).toBe(false);
   });
 
   it('withdraws only its own token when docker refuses the spawn', async () => {
@@ -336,7 +359,7 @@ describe('spec rewrite', () => {
       key: { installSlug: 'x', ...remoteKey },
       containers: [{ role: 'agent', image: 'i', env: {}, mounts: [] }],
     } as unknown as SessionSpec;
-    expect(() => rewriteRemoteMailboxSpec(spec, { workspace: '/w', heartbeat: '/h' }, {})).toThrow(/workspace/);
+    expect(() => rewriteRemoteMailboxSpec(spec, { workspace: '/w', heartbeatDir: '/h' }, {})).toThrow(/workspace/);
   });
 });
 

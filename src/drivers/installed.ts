@@ -7,3 +7,4 @@
 // `index.ts` would own a patch of this tree's internals, and every later edit
 // to selection would silently invalidate it.
 import '../mailbox/remote/driver.js';
+import './openshell/register.js';

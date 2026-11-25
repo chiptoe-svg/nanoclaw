@@ -24,9 +24,11 @@ How it fits together:
   lockdown only: a container on the locked-down network that forwards the
   mailbox port, and nothing else, to the host.
 - **Session driver** `remote-mailbox` (`src/mailbox/remote/driver.ts`) wraps the
-  install's `docker` driver. For a listed group it swaps the `/workspace` mount
-  for an empty per-session scratch directory, adds the mailbox URL, token and
-  session to the container env, and binds a heartbeat file that the host sees at
+  install's `docker` driver, or the registered driver
+  `NANOCLAW_REMOTE_MAILBOX_INNER_DRIVER` names. For a listed group it swaps the
+  `/workspace` mount for an empty per-session scratch directory, adds the
+  mailbox URL, token and session to the container env, and binds a small
+  per-session directory whose heartbeat file the host sees at
   `<sessionDir>/.heartbeat`. When the container ends it revokes the tokens and
   deletes the scratch directory. Other groups pass through untouched.
 - **Runner** (`container/agent-runner/src/mailbox/compose.ts`) picks the HTTP
@@ -77,7 +79,6 @@ payload/src/mailbox/remote/tokens.ts -> src/mailbox/remote/tokens.ts
 payload/container/agent-runner/src/mailbox/remote/fake-host.server.ts -> container/agent-runner/src/mailbox/remote/fake-host.server.ts
 payload/container/agent-runner/src/mailbox/remote/fake-host.ts -> container/agent-runner/src/mailbox/remote/fake-host.ts
 payload/container/agent-runner/src/mailbox/remote/files.ts -> container/agent-runner/src/mailbox/remote/files.ts
-payload/container/agent-runner/src/mailbox/remote/heartbeat.ts -> container/agent-runner/src/mailbox/remote/heartbeat.ts
 payload/container/agent-runner/src/mailbox/remote/index.ts -> container/agent-runner/src/mailbox/remote/index.ts
 payload/container/agent-runner/src/mailbox/remote/remote.test.ts -> container/agent-runner/src/mailbox/remote/remote.test.ts
 payload/container/agent-runner/src/mailbox/remote/rpc-worker.ts -> container/agent-runner/src/mailbox/remote/rpc-worker.ts
@@ -132,7 +133,9 @@ Which agent group ids should use the remote mailbox? Comma-separated, no spaces 
 Write the groups and select the driver in `.env`. Both settings are needed: the
 listed groups keep the mounted session directory until the driver is selected,
 and the host logs an error saying so. `NANOCLAW_MAILBOX_PORT` (default 18770)
-moves the host service if that port is taken.
+moves the host service if that port is taken. `NANOCLAW_REMOTE_MAILBOX_INNER_DRIVER`
+(default `docker`) names the driver this one wraps; a runtime skill such as
+`/add-openshell` sets it.
 
 ```nc:env-set
 NANOCLAW_REMOTE_MAILBOX_GROUPS={{remote_mailbox_groups}}
@@ -164,8 +167,8 @@ on its next spawn; `ncl groups restart --id <group-id>` does it now.
 `Remote mailbox forwarder up` under egress lockdown. After a listed
 group's next message, its container has no mount of
 `data/v2-sessions/<group>/<session>` (`docker inspect <container>` shows
-`.remote-workspace/<session>` at `/workspace`), and the session's heartbeat
-keeps updating.
+`.remote-workspace/<session>` at `/workspace` and `.remote-workspace/<session>.hb`
+at `/opt/nanoclaw-heartbeat`), and the session's heartbeat keeps updating.
 
 ## Troubleshooting
 

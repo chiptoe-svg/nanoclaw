@@ -19,10 +19,6 @@ const envConfig = readEnvFile([
   'CONTAINER_PIDS_LIMIT',
   'NANOCLAW_EGRESS_LOCKDOWN',
   'NANOCLAW_EGRESS_NETWORK',
-  'NANOCLAW_OPENSHELL_GROUPS',
-  'NANOCLAW_OPENSHELL_FORWARD_PORT',
-  'NANOCLAW_OPENSHELL_CREDENTIALS',
-  'NANOCLAW_OPENSHELL_IDLE_MINUTES',
   'WEBHOOK_PORT',
   'WEBHOOK_HOST',
   'NANOCLAW_ABSOLUTE_CEILING_MS',
@@ -114,51 +110,6 @@ export const CONTAINER_PIDS_LIMIT = process.env.CONTAINER_PIDS_LIMIT ?? envConfi
 export const EGRESS_LOCKDOWN = (process.env.NANOCLAW_EGRESS_LOCKDOWN || envConfig.NANOCLAW_EGRESS_LOCKDOWN) === 'true';
 export const EGRESS_NETWORK =
   process.env.NANOCLAW_EGRESS_NETWORK || envConfig.NANOCLAW_EGRESS_NETWORK || 'nanoclaw-egress';
-
-// OpenShell MicroVM sessions (prototype) — opt-in per agent group. Groups
-// listed here run as OpenShell sandboxes; everything else stays on Docker.
-// Every listed group must also be in NANOCLAW_REMOTE_MAILBOX_GROUPS (the
-// /add-remote-mailbox skill). Empty =
-// feature fully off (the Docker driver is used as-is, unwrapped).
-export const OPENSHELL_GROUPS: readonly string[] = (
-  process.env.NANOCLAW_OPENSHELL_GROUPS ||
-  envConfig.NANOCLAW_OPENSHELL_GROUPS ||
-  ''
-)
-  .split(',')
-  .map((id) => id.trim())
-  .filter(Boolean);
-const openshellForwardPort = Number.parseInt(
-  process.env.NANOCLAW_OPENSHELL_FORWARD_PORT || envConfig.NANOCLAW_OPENSHELL_FORWARD_PORT || '',
-  10,
-);
-// Host loopback port of the forwarder that carries sandbox proxy traffic to
-// the credential gateway (OpenShell blocks the gateway's own port).
-export const OPENSHELL_FORWARD_PORT =
-  Number.isInteger(openshellForwardPort) && openshellForwardPort > 0 && openshellForwardPort < 65536
-    ? openshellForwardPort
-    : 18755;
-
-// Credentials from OpenShell providers instead of the install's gateway
-// (prototype) — opt-in per agent group: `<agentGroupId>:<provider>[+<provider>…]`,
-// comma-separated. Raw here; parsed and checked in
-// src/gateway-providers/openshell.ts. Every listed group must also be in
-// NANOCLAW_OPENSHELL_GROUPS. Empty = feature fully off.
-export const OPENSHELL_CREDENTIALS_RAW =
-  process.env.NANOCLAW_OPENSHELL_CREDENTIALS || envConfig.NANOCLAW_OPENSHELL_CREDENTIALS || '';
-// Optional keep-alive for idle OpenShell VMs (prototype): minutes of idleness
-// (no heartbeat) before the host sweep stops an OpenShell group's session.
-// Only ever raises the ceiling above the global one (default 30 min), and only
-// for groups in NANOCLAW_OPENSHELL_GROUPS. Whole minutes, 1..1440; anything
-// else = off (0). One running VM costs ~1.4 GB host RSS.
-const openshellIdleMinutes = Number.parseInt(
-  process.env.NANOCLAW_OPENSHELL_IDLE_MINUTES || envConfig.NANOCLAW_OPENSHELL_IDLE_MINUTES || '',
-  10,
-);
-export const OPENSHELL_IDLE_MINUTES =
-  Number.isInteger(openshellIdleMinutes) && openshellIdleMinutes > 0 && openshellIdleMinutes <= 1440
-    ? openshellIdleMinutes
-    : 0;
 
 // Global overrides for the host sweep's two stuck-container timers (see
 // src/reconcile-session.ts). Raw strings: parsed and range-checked where they

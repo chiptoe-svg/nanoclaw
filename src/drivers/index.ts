@@ -39,18 +39,14 @@
 import os from 'os';
 import path from 'path';
 
-import { DATA_DIR, GROUPS_DIR, OPENSHELL_FORWARD_PORT, OPENSHELL_GROUPS } from '../config.js';
+import { DATA_DIR, GROUPS_DIR } from '../config.js';
 import { EGRESS_NETWORK, egressNetworkArgs, ensureEgressNetwork, onEgressNetworkOnly } from '../egress-lockdown.js';
 import { readEnvFile } from '../env.js';
 import { log } from '../log.js';
-// OpenShell prototype only: its groups must also use the remote mailbox skill.
-import { REMOTE_MAILBOX_GROUPS } from '../mailbox/remote/config.js';
 import '../provider-contracts/index.js';
 import { protectedProviderDocumentSourcePaths } from '../provider-contracts/realize.js';
 
 import { DockerSessionDriver, agentContainerName } from './docker-driver.js';
-import { withOpenShellGroups } from './openshell/composite.js';
-import { OpenShellSessionDriver } from './openshell-driver.js';
 import {
   getSessionDriverFactory,
   listSessionDriverKinds,
@@ -90,12 +86,9 @@ function dockerNetworkArgs(spec: SessionSpec): string[] {
   return os.platform() === 'linux' ? [`--add-host=${spec.networkAccess.endpoint}:host-gateway`] : [];
 }
 
-registerSessionDriver(DEFAULT_DRIVER_KIND, (policy) =>
-  // NANOCLAW_OPENSHELL_GROUPS empty (the default) → the Docker driver itself,
-  // unwrapped. Opted-in groups route to OpenShell; the Docker egress network
-  // never applies to them (OpenShell enforces egress from its own policy), and
-  // Docker groups keep the lockdown realization below unchanged.
-  withOpenShellGroups(
+registerSessionDriver(
+  DEFAULT_DRIVER_KIND,
+  (policy) =>
     new DockerSessionDriver({
       ...policy,
       networkArgsFor: dockerNetworkArgs,
@@ -107,14 +100,6 @@ registerSessionDriver(DEFAULT_DRIVER_KIND, (policy) =>
         return onEgressNetworkOnly(attachedNetworks()) ? 'kept' : 'restart';
       },
     }),
-    { groups: OPENSHELL_GROUPS, remoteMailboxGroups: REMOTE_MAILBOX_GROUPS },
-    () =>
-      new OpenShellSessionDriver({
-        ...policy,
-        forwardPort: OPENSHELL_FORWARD_PORT,
-        stagingRoot: path.join(policy.dataRoot, 'openshell-staging'),
-      }),
-  ),
 );
 
 export function configuredDriverKind(env: NodeJS.ProcessEnv = process.env): DriverKind {

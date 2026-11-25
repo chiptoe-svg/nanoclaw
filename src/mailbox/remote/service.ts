@@ -12,7 +12,7 @@ import http from 'http';
 import type { AddressInfo } from 'net';
 
 import { log } from '../../log.js';
-import { inboxList, inboxRead, outboxWrite, PathRejectedError, touchHeartbeat } from './files.js';
+import { inboxList, inboxRead, outboxWrite, PathRejectedError } from './files.js';
 import type { RemoteSessionKey } from './ids.js';
 import { createSessionOperations, SessionUnavailableError } from './operations.js';
 import type { SessionOperations } from './operations.js';
@@ -101,7 +101,6 @@ const HANDLERS: Record<string, Handler> = {
   clearStaleProcessingAcks: (_k, o, a) => (expectArgs(a, 0), o.clearStaleProcessingAcks()),
   // Extra ops
   hello: (k, _o, a) => (expectArgs(a, 0), { agentGroupId: k.agentGroupId, sessionId: k.sessionId }),
-  heartbeat: (k, _o, a) => (expectArgs(a, 0), touchHeartbeat(k), null),
   inboxList: (k, _o, a) => (expectArgs(a, 0), inboxList(k)),
   inboxRead: (k, _o, a) => (expectArgs(a, 3), inboxRead(k, a[0], a[1], a[2])),
   outboxWrite: (k, _o, a) => (expectArgs(a, 5), outboxWrite(k, a[0], a[1], a[2], a[3], a[4])),

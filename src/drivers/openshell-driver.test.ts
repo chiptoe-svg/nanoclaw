@@ -27,6 +27,11 @@ import { sandboxName } from './openshell/translate.js';
 import { withSessionEvents, type SessionEventsDriver } from './session-events.js';
 import type { MountPolicy, SessionSpec } from './types.js';
 
+/** `credentialProviders` is a key only on installs whose gateway attaches OpenShell providers. */
+function withProviders(base: SessionSpec, credentialProviders: string[]): SessionSpec {
+  return { ...base, credentialProviders } as SessionSpec & { credentialProviders: string[] };
+}
+
 const N1 = sandboxName({ installSlug: 'inst', agentGroupId: 'g1', sessionId: 's1' });
 const N2 = sandboxName({ installSlug: 'inst', agentGroupId: 'g1', sessionId: 's2' });
 
@@ -248,7 +253,7 @@ describe('start', () => {
   });
 
   it('attaches credential providers by name and never auto-creates one', async () => {
-    const handle = await driver.prepare({ ...spec(), credentialProviders: ['nc-claude-lab', 'nc-github-lab'] });
+    const handle = await driver.prepare(withProviders(spec(), ['nc-claude-lab', 'nc-github-lab']));
     await handle.start();
     const args = cli.argsOf('create')!;
     const flags = args.slice(0, args.indexOf('--'));
@@ -269,7 +274,7 @@ describe('start', () => {
   });
 
   it('refuses a provider name that is not a plain name', async () => {
-    await expect(driver.prepare({ ...spec(), credentialProviders: ['--gateway=evil'] })).rejects.toMatchObject({
+    await expect(driver.prepare(withProviders(spec(), ['--gateway=evil']))).rejects.toMatchObject({
       kind: 'spec-invalid',
     });
   });

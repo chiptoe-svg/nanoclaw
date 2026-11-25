@@ -358,30 +358,6 @@ describe('per-session serialization', () => {
   });
 });
 
-describe('heartbeat', () => {
-  it('touches <sessionDir>/.heartbeat', async () => {
-    await boot();
-    const file = path.join(dir, '.heartbeat');
-    expect(fs.existsSync(file)).toBe(false);
-    const before = Date.now() - 50;
-    expect((await rpc('heartbeat')).body).toMatchObject({ ok: true, result: null });
-    expect(fs.statSync(file).mtimeMs).toBeGreaterThan(before);
-    fs.utimesSync(file, new Date(1000), new Date(1000));
-    await rpc('heartbeat');
-    expect(fs.statSync(file).mtimeMs).toBeGreaterThan(before);
-  });
-
-  it('refuses a symlinked .heartbeat and leaves its target alone', async () => {
-    await boot();
-    const target = path.join(TEST_DIR, 'victim');
-    fs.writeFileSync(target, 'x');
-    fs.utimesSync(target, new Date(1000), new Date(1000));
-    fs.symlinkSync(target, path.join(dir, '.heartbeat'));
-    expect((await rpc('heartbeat')).body.error?.code).toBe('path_rejected');
-    expect(fs.statSync(target).mtimeMs).toBe(1000);
-  });
-});
-
 describe('inbox', () => {
   beforeEach(async () => {
     await boot();

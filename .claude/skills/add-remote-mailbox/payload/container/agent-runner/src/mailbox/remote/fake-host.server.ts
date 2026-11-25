@@ -17,7 +17,6 @@ const state = new Map<string, { value: string; updatedAt: string }>();
 const outbound: Array<Record<string, unknown>> = [];
 let pending: Array<Record<string, unknown>> = [];
 const log: Array<{ op: string; args: unknown[]; session: string | null; id: number }> = [];
-let heartbeats = 0;
 let nextSeq = 1;
 let delayNextMs = 0;
 let wrongIdNext = false;
@@ -29,9 +28,6 @@ function handleOp(op: string, a: unknown[]): unknown {
   switch (op) {
     case 'hello':
       return { agentGroupId: AGENT_GROUP, sessionId: SESSION_ID };
-    case 'heartbeat':
-      heartbeats++;
-      return null;
     case 'getPendingMessages':
       return pending.slice(0, a[0] as number);
     case 'markMessages':
@@ -108,7 +104,6 @@ function handleOp(op: string, a: unknown[]): unknown {
 
 const KNOWN = new Set([
   'hello',
-  'heartbeat',
   'getPendingMessages',
   'markMessages',
   'markScriptSkipped',
@@ -157,7 +152,6 @@ async function control(body: Record<string, any>): Promise<unknown> {
     case 'dump':
       return {
         log,
-        heartbeats,
         inboxReads,
         outbound,
         outbox: Object.fromEntries(

@@ -214,7 +214,9 @@ export class OpenShellSessionDriver implements SessionDriver {
   }
 
   capabilities(): DriverCapabilities {
-    return {
+    // `credentialProviders` is declared by installs whose gateway can attach
+    // runtime-native credential providers; on others it is an extra key.
+    const capabilities: DriverCapabilities & { credentialProviders?: boolean } = {
       // A MicroVM is at least container isolation; a group configured for
       // either tier is realizable.
       isolationTiers: ['vm', 'container'],
@@ -232,6 +234,7 @@ export class OpenShellSessionDriver implements SessionDriver {
       // builds nothing itself.
       imageBuild: false,
     };
+    return capabilities;
   }
 
   async ensureReady(): Promise<void> {

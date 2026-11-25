@@ -32,14 +32,16 @@ vi.mock('../../log.js', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 import fs from 'fs';
 import path from 'path';
 
-import { parseMailboxPort, parseRemoteMailboxGroups } from './config.js';
+import { DEFAULT_INNER_DRIVER, parseMailboxPort, parseRemoteMailboxGroups } from './config.js';
 import {
   hasRemoteMailboxState,
   isRemoteMailboxGroup,
   issueRemoteMailboxEnv,
   prepareRemoteHeartbeat,
   prepareRemoteWorkspace,
+  legacyHeartbeatFile,
   releaseRemoteMailbox,
+  remoteHeartbeatDir,
   remoteHeartbeatFile,
   sessionHeartbeatPath,
   remoteMailboxEnabled,
@@ -121,6 +123,7 @@ describe('settings', () => {
     expect(parseMailboxPort('18999')).toBe(18999);
     expect(parseMailboxPort('')).toBe(18770);
     expect(parseMailboxPort('70000')).toBe(18770);
+    expect(DEFAULT_INNER_DRIVER).toBe('docker');
   });
 });
 
@@ -130,8 +133,9 @@ describe('heartbeat link', () => {
   beforeEach(() => fs.rmSync(cfg.dataDir, { recursive: true, force: true }));
 
   it('links a fresh heartbeat (mtime 0, read as absent) at the session heartbeat path', () => {
-    const file = prepareRemoteHeartbeat(key);
-    expect(file).toBe(remoteHeartbeatFile(key));
+    expect(prepareRemoteHeartbeat(key)).toBe(remoteHeartbeatDir(key));
+    const file = remoteHeartbeatFile(key);
+    expect(path.dirname(file)).toBe(remoteHeartbeatDir(key));
     expect(fs.statSync(sessionHeartbeatPath(key)).mtimeMs).toBe(0);
     const now = new Date();
     fs.utimesSync(file, now, now);
@@ -139,13 +143,28 @@ describe('heartbeat link', () => {
   });
 
   it('re-links the same file after the host deletes the session heartbeat, so a reused runtime stays visible', () => {
-    const file = prepareRemoteHeartbeat(key);
+    prepareRemoteHeartbeat(key);
+    const file = remoteHeartbeatFile(key);
     const now = new Date();
     fs.utimesSync(file, now, now);
     fs.rmSync(sessionHeartbeatPath(key));
     prepareRemoteHeartbeat(key);
     expect(fs.statSync(sessionHeartbeatPath(key)).ino).toBe(fs.statSync(file).ino);
     expect(fs.statSync(sessionHeartbeatPath(key)).mtimeMs).toBeGreaterThan(0);
+  });
+
+  it('shares the inode of a heartbeat file a container from before the directory mount still touches', () => {
+    const legacy = legacyHeartbeatFile(key);
+    fs.mkdirSync(path.dirname(legacy), { recursive: true });
+    fs.writeFileSync(legacy, '');
+    prepareRemoteHeartbeat(key);
+    const now = new Date();
+    fs.utimesSync(legacy, now, now);
+    expect(fs.statSync(sessionHeartbeatPath(key)).ino).toBe(fs.statSync(legacy).ino);
+    expect(fs.statSync(remoteHeartbeatFile(key)).ino).toBe(fs.statSync(legacy).ino);
+    releaseRemoteMailbox(key);
+    expect(fs.existsSync(legacy)).toBe(false);
+    expect(fs.existsSync(remoteHeartbeatDir(key))).toBe(false);
   });
 
   it('release removes the token, the scratch dir and the heartbeat file', () => {

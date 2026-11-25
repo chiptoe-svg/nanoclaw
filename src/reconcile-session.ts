@@ -34,7 +34,7 @@ import fs from 'fs';
 import { getSessionClaim } from './db/coordination.js';
 import { getSession, isTaskThread, updateSession } from './db/sessions.js';
 import { getAgentGroup } from './db/agent-groups.js';
-import { ABSOLUTE_CEILING_MS_RAW, CLAIM_STUCK_MS_RAW, OPENSHELL_GROUPS, OPENSHELL_IDLE_MINUTES } from './config.js';
+import { ABSOLUTE_CEILING_MS_RAW, CLAIM_STUCK_MS_RAW } from './config.js';
 import { log } from './log.js';
 import { heartbeatPath, withExistingMailboxSession } from './session-manager.js';
 import { getContainerStartedAtMs, isContainerRunning, killContainer } from './container-runner.js';
@@ -74,19 +74,6 @@ export const CLAIM_STUCK_MS = envOverrideMs('NANOCLAW_CLAIM_STUCK_MS', CLAIM_STU
 const MAX_TRIES = 5;
 const BACKOFF_BASE_MS = 5000;
 
-/**
- * Idle keep-alive for OpenShell VMs (NANOCLAW_OPENSHELL_IDLE_MINUTES): the
- * ceiling override for an OpenShell group, undefined for everything else so
- * Docker groups keep the global ceiling untouched.
- */
-export function openshellIdleCeilingMs(
-  agentGroupId: string,
-  groups: readonly string[] = OPENSHELL_GROUPS,
-  minutes: number = OPENSHELL_IDLE_MINUTES,
-): number | undefined {
-  return minutes > 0 && groups.includes(agentGroupId) ? minutes * 60 * 1000 : undefined;
-}
-
 export type StuckDecision =
   | { action: 'ok' }
   | { action: 'kill-ceiling'; heartbeatAgeMs: number; ceilingMs: number }
@@ -103,10 +90,8 @@ export function decideStuckAction(args: {
   containerStartedAtMs?: number; // fallback when heartbeat file absent
   containerState: ContainerState | null;
   claims: Array<{ messageId: string; statusChanged: string }>;
-  /** Raises (never lowers) the absolute ceiling; see openshellIdleCeilingMs. */
-  idleCeilingMs?: number;
 }): StuckDecision {
-  const { now, heartbeatMtimeMs, containerStartedAtMs, containerState, claims, idleCeilingMs } = args;
+  const { now, heartbeatMtimeMs, containerStartedAtMs, containerState, claims } = args;
   const declaredBashMs = bashTimeoutMs(containerState);
 
   // Ceiling check prefers the heartbeat file's mtime. A freshly-spawned
@@ -128,7 +113,7 @@ export function decideStuckAction(args: {
   const effectiveHeartbeatMs = heartbeatMtimeMs !== 0 ? heartbeatMtimeMs : (containerStartedAtMs ?? 0);
   if (effectiveHeartbeatMs !== 0) {
     const heartbeatAge = now - effectiveHeartbeatMs;
-    const ceiling = Math.max(ABSOLUTE_CEILING_MS, idleCeilingMs ?? 0, declaredBashMs ?? 0);
+    const ceiling = Math.max(ABSOLUTE_CEILING_MS, declaredBashMs ?? 0);
     if (heartbeatAge > ceiling) {
       return { action: 'kill-ceiling', heartbeatAgeMs: heartbeatAge, ceilingMs: ceiling };
     }
@@ -292,7 +277,6 @@ async function enforceRunningContainerSla(
     containerStartedAtMs: getContainerStartedAtMs(session.id),
     containerState: outDb.getContainerState(),
     claims: gatedClaims,
-    idleCeilingMs: openshellIdleCeilingMs(agentGroupId),
   });
 
   if (decision.action === 'ok') return;

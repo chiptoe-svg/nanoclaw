@@ -13,9 +13,9 @@
  * untouched. It holds only what the runner itself writes.
  *
  * Heartbeat: the host reads `<sessionDir>/.heartbeat`. The runner touches a
- * single-file mount of a skill-owned file that is hard-linked there, so the
- * sweep and typing refresh see it without the session directory being
- * mounted. See `prepareRemoteHeartbeat`.
+ * skill-owned file, in a per-session directory mount, that is hard-linked
+ * there, so the sweep and typing refresh see it without the session directory
+ * being mounted. See `prepareRemoteHeartbeat`.
  *
  * Egress lockdown: under NANOCLAW_EGRESS_LOCKDOWN, a container on the locked
  * network cannot reach the host; `host.docker.internal` there is the credential
@@ -49,8 +49,29 @@ export function remoteWorkspaceDir(key: RemoteSessionKey): string {
   return path.join(remoteRoot(key), key.sessionId);
 }
 
-/** The heartbeat file the container touches; outside the scratch dir, so the runner cannot swap it. */
+/** Name of the heartbeat file inside the heartbeat directory. */
+export const REMOTE_HEARTBEAT_FILE = 'heartbeat';
+
+/**
+ * The directory mounted into the container for the heartbeat; outside the
+ * scratch dir. Session ids carry no dots, so `<sessionId>.hb` never names
+ * another session's scratch dir.
+ */
+export function remoteHeartbeatDir(key: RemoteSessionKey): string {
+  return path.join(remoteRoot(key), `${key.sessionId}.hb`);
+}
+
+/** The heartbeat file the container touches. */
 export function remoteHeartbeatFile(key: RemoteSessionKey): string {
+  return path.join(remoteHeartbeatDir(key), REMOTE_HEARTBEAT_FILE);
+}
+
+/**
+ * Where containers spawned before the heartbeat moved into a directory touch
+ * their (single-file mounted) heartbeat. Kept on the same inode while such a
+ * container may be live, and released with the rest.
+ */
+export function legacyHeartbeatFile(key: RemoteSessionKey): string {
   return path.join(remoteRoot(key), `${key.sessionId}.heartbeat`);
 }
 
@@ -66,7 +87,12 @@ export function sessionHeartbeatPath(key: RemoteSessionKey): string {
 /** Whether a session has remote-mailbox state to release (a token or a scratch dir). */
 export function hasRemoteMailboxState(key: RemoteSessionKey): boolean {
   if (!isValidSessionKey(key)) return false;
-  return tokenFileExists(key) || fs.existsSync(remoteWorkspaceDir(key)) || fs.existsSync(remoteHeartbeatFile(key));
+  return (
+    tokenFileExists(key) ||
+    fs.existsSync(remoteWorkspaceDir(key)) ||
+    fs.existsSync(remoteHeartbeatDir(key)) ||
+    fs.existsSync(legacyHeartbeatFile(key))
+  );
 }
 
 /** The scratch /workspace for a remote-mailbox session (created if missing, never cleared here). */
@@ -81,28 +107,35 @@ export function prepareRemoteWorkspace(key: RemoteSessionKey): string {
 }
 
 /**
- * The heartbeat file to bind into the container, hard-linked at the host's
- * `<sessionDir>/.heartbeat`.
+ * The heartbeat directory to bind into the container. Its file is hard-linked
+ * at the host's `<sessionDir>/.heartbeat`.
  *
  * Core deletes `<sessionDir>/.heartbeat` just before `prepare()`; this links
  * it back to the same inode the container touches. Hard link rather than a
- * fresh file: when `prepare()` reuses a live runtime, that runtime's bind
- * still points at the existing inode, and the link keeps the host reading it.
+ * fresh file: when `prepare()` reuses a live runtime, that runtime's mount
+ * still reaches the existing inode, and the link keeps the host reading it.
  * A file created here gets mtime 0, which the sweep reads exactly like an
  * absent heartbeat (fresh-spawn grace), matching what core's delete means.
  */
 export function prepareRemoteHeartbeat(key: RemoteSessionKey): string {
+  const dir = remoteHeartbeatDir(key);
   const file = remoteHeartbeatFile(key);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.mkdirSync(dir, { recursive: true });
   if (!fs.existsSync(file)) {
-    fs.writeFileSync(file, '');
-    fs.utimesSync(file, 0, 0);
+    const legacy = legacyHeartbeatFile(key);
+    if (fs.existsSync(legacy)) {
+      // A runtime from before the move may still be live: share its inode.
+      fs.linkSync(legacy, file);
+    } else {
+      fs.writeFileSync(file, '');
+      fs.utimesSync(file, 0, 0);
+    }
   }
   const link = sessionHeartbeatPath(key);
   fs.mkdirSync(path.dirname(link), { recursive: true });
   fs.rmSync(link, { force: true });
   fs.linkSync(file, link);
-  return file;
+  return dir;
 }
 
 /** Host name a container reaches the service by: the forwarder's alias on the locked network, else the host. */
@@ -137,7 +170,7 @@ export function issueRemoteMailboxEnv(key: RemoteSessionKey, viaForwarder = fals
 
 /**
  * Container gone (or never started): revoke its tokens and drop its scratch
- * workspace and heartbeat file. Idempotent and a no-op for sessions that never
+ * workspace and heartbeat. Idempotent and a no-op for sessions that never
  * used the remote mailbox. NOT called on host shutdown — adopted containers
  * keep working.
  */
@@ -146,7 +179,8 @@ export function releaseRemoteMailbox(key: RemoteSessionKey): void {
   try {
     revokeMailboxToken(key);
     fs.rmSync(remoteWorkspaceDir(key), { recursive: true, force: true });
-    fs.rmSync(remoteHeartbeatFile(key), { force: true });
+    fs.rmSync(remoteHeartbeatDir(key), { recursive: true, force: true });
+    fs.rmSync(legacyHeartbeatFile(key), { force: true });
   } catch (err) {
     log.warn('Remote mailbox release failed', { ...key, err });
   }

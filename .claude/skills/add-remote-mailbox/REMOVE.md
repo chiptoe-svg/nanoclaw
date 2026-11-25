@@ -1,9 +1,10 @@
 # Remove the remote agent mailbox
 
-1. In `.env`, delete `NANOCLAW_REMOTE_MAILBOX_GROUPS` and `NANOCLAW_MAILBOX_PORT`,
-   and delete `NANOCLAW_RUNTIME_DRIVER=remote-mailbox` (or set it back to the
-   driver the install used before). Restart the host with
-   `bash setup/lib/restart.sh`, then restart each formerly listed group with
+1. In `.env`, delete `NANOCLAW_REMOTE_MAILBOX_GROUPS`, `NANOCLAW_MAILBOX_PORT`
+   and `NANOCLAW_REMOTE_MAILBOX_INNER_DRIVER`, and delete
+   `NANOCLAW_RUNTIME_DRIVER=remote-mailbox` (or set it back to the driver the
+   install used before). Restart the host with `bash setup/lib/restart.sh`,
+   then restart each formerly listed group with
    `ncl groups restart --id <group-id>` so its next container gets the mounted
    session directory.
 

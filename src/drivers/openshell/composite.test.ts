@@ -89,10 +89,8 @@ describe('withOpenShellGroups', () => {
     expect(d.kind).toBe('docker+openshell');
   });
 
-  it('the shipped docker registration selects a bare Docker driver when NANOCLAW_OPENSHELL_GROUPS is unset', () => {
+  it('leaves the shipped docker registration untouched', () => {
     // The hub wraps whatever the factory made; its kind is the inner driver's.
-    expect(process.env.NANOCLAW_OPENSHELL_GROUPS).toBeUndefined();
-    // A wrapped install would report 'docker+openshell'.
     expect(createSessionDriver('docker').kind).toBe('docker');
   });
 });
