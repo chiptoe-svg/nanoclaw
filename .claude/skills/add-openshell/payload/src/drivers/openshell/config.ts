@@ -17,10 +17,18 @@
  *   use the install-wide container limits. Passed as `--memory`/`--cpu`; the
  *   vm compute driver ignores both today (ai-openshell/openshell#5744), so the
  *   gateway's `mem_mib`/`vcpus` decide until it doesn't.
+ * - NANOCLAW_OPENSHELL_EVICT_IDLE_SECONDS: drop a VM's file cache once its
+ *   agent has been idle this long, so the memory returns to the host. Default
+ *   120; 0 = off.
  */
 import { readEnvFile } from '../../env.js';
 
-const KEYS = ['NANOCLAW_OPENSHELL_GROUPS', 'NANOCLAW_OPENSHELL_FORWARD_PORT', 'NANOCLAW_OPENSHELL_SIZES'] as const;
+const KEYS = [
+  'NANOCLAW_OPENSHELL_GROUPS',
+  'NANOCLAW_OPENSHELL_FORWARD_PORT',
+  'NANOCLAW_OPENSHELL_SIZES',
+  'NANOCLAW_OPENSHELL_EVICT_IDLE_SECONDS',
+] as const;
 
 export const DEFAULT_FORWARD_PORT = 18755;
 
@@ -59,3 +67,15 @@ export function parseOpenShellSizes(raw: string): ReadonlyMap<string, { memoryMb
 }
 
 export const OPENSHELL_SIZES = parseOpenShellSizes(read('NANOCLAW_OPENSHELL_SIZES', process.env));
+
+export const DEFAULT_EVICT_IDLE_SECONDS = 120;
+
+export function parseEvictIdleSeconds(raw: string): number {
+  if (raw.trim() === '') return DEFAULT_EVICT_IDLE_SECONDS;
+  const seconds = Number(raw);
+  return Number.isInteger(seconds) && seconds >= 0 ? seconds : DEFAULT_EVICT_IDLE_SECONDS;
+}
+
+export const OPENSHELL_EVICT_IDLE_SECONDS = parseEvictIdleSeconds(
+  read('NANOCLAW_OPENSHELL_EVICT_IDLE_SECONDS', process.env),
+);

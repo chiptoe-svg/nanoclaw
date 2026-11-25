@@ -443,10 +443,21 @@ of the Claude binary (126 ms vs 5 ms).
   may need more).
 - An idle VM is small: ~167 MB host RSS; inside, 48 MB used, kernel (slab,
   stacks, page tables) ~16 MB, Linux 6.12. Trimming the kernel would gain little.
-- Freed guest memory is NOT returned to the host: after a 600 MB allocation was
-  freed in the guest (guest `free`: 53 MB used), the VM process stayed at ~870 MB
-  RSS. A VM's footprint is its high-water mark until the sandbox is deleted, so
-  the gateway cap is the effective control (and sessions ending frees it all).
+- Freed guest memory IS returned, lazily: the VM has a virtio-balloon with
+  free-page reporting; ~30 s after the guest frees memory, the host process's
+  RSS drops (967 → 767 MB). libkrun releases with `MADV_FREE`, so macOS keeps
+  counting the pages in the footprint until it needs them (it reclaims those
+  first). (An earlier note here said the opposite — measured too soon.)
+- The guest's FILE CACHE is never reported (it isn't free memory) and was the
+  biggest controllable part (~500 MB after a browser turn; ~950 MB after reading
+  the image). Dropping it unprivileged (`dd iflag=nocache count=0` per file =
+  posix_fadvise DONTNEED; `drop_caches` needs root, and exec runs as uid 1000)
+  took the cache 946 → 39 MB and the host footprint 1.9 → 1.4 GB within 30 s.
+  The VM prelude now runs an idle evictor: once the heartbeat is quiet for
+  `NANOCLAW_OPENSHELL_EVICT_IDLE_SECONDS` (default 120), it drops the cache once
+  per idle period. Verified live (946 → 72 MB at the first check after idle).
+- The second "shared memory" region (~512 MB) is reserved address space with
+  0 resident — not a cost. Guest RAM is 8 × 128 MB blocks.
 
 ## Upstream state (checked 2026-11-24)
 

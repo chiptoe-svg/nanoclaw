@@ -146,6 +146,11 @@ export interface TranslateOptions {
   approvedEndpoints?: readonly ApprovedEndpoint[];
   /** Per-group VM size (NANOCLAW_OPENSHELL_SIZES); falls back to the spec's install-wide resources. */
   size?: VmSize;
+  /**
+   * Drop the guest's file cache once the heartbeat has been quiet this long
+   * (NANOCLAW_OPENSHELL_EVICT_IDLE_SECONDS). 0 or absent = never.
+   */
+  evictIdleSeconds?: number;
 }
 
 export interface VmSize {
@@ -561,6 +566,7 @@ export function translateSpec(spec: SessionSpec, opts: TranslateOptions): Sandbo
     ...(specKeys.has('AGENT_BROWSER_ARGS')
       ? []
       : [`export AGENT_BROWSER_ARGS=${shellQuote('--no-sandbox,--no-zygote')}`]),
+    ...(opts.evictIdleSeconds && opts.evictIdleSeconds > 0 ? [cacheEvictor(opts.evictIdleSeconds)] : []),
   ];
   prelude.push(...relocated.map((r) => link(r.guestPath, r.containerPath)));
   for (const file of staged) {
@@ -643,4 +649,24 @@ export function translateSpec(spec: SessionSpec, opts: TranslateOptions): Sandbo
     size,
     providers: credentialProviders(spec),
   };
+}
+
+/** Guest trees whose cached pages the idle evictor drops (the image, the agent's home, the workspace). */
+export const EVICT_ROOTS = ['/opt', '/usr', '/app', '/pnpm', '/home/node', '/workspace'];
+
+/**
+ * A background loop, as the sandbox user, that drops the guest's file cache
+ * once per idle period: when the runner's heartbeat file has not been touched
+ * for `idleSeconds`. Freed pages go back to the host through the VM's
+ * free-page-reporting balloon; a page that stays in the guest's cache never
+ * does. Unprivileged: `dd iflag=nocache count=0` is posix_fadvise(DONTNEED)
+ * on a file the user can read (`drop_caches` needs root).
+ */
+export function cacheEvictor(idleSeconds: number): string {
+  const roots = EVICT_ROOTS.join(' ');
+  const loop = [
+    'hb="$NANOCLAW_HEARTBEAT_PATH"; done_=0',
+    `while sleep 30; do [ -n "$hb" ] && [ -f "$hb" ] || continue; age=$(( $(date +%s) - $(stat -c %Y "$hb") )); if [ "$age" -lt ${Math.floor(idleSeconds)} ]; then done_=0; continue; fi; [ "$done_" = 1 ] && continue; find ${roots} -xdev -type f -size +16k 2>/dev/null | while IFS= read -r f; do dd if="$f" iflag=nocache count=0 status=none 2>/dev/null; done; done_=1; done`,
+  ].join('; ');
+  return `{ ( ${loop} ) </dev/null >/dev/null 2>&1 & }`;
 }

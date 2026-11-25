@@ -23,7 +23,8 @@ vi.mock('../log.js', () => ({
 import { FakeOpenShell } from './openshell/fake-openshell.js';
 import type { Forwarder } from './openshell/forwarder.js';
 import { mapSandboxPhase, OpenShellSessionDriver } from './openshell-driver.js';
-import { sandboxName } from './openshell/translate.js';
+import { OPENSHELL_EVICT_IDLE_SECONDS } from './openshell/config.js';
+import { cacheEvictor, sandboxName } from './openshell/translate.js';
 import { withSessionEvents, type SessionEventsDriver } from './session-events.js';
 import type { MountPolicy, SessionSpec } from './types.js';
 
@@ -250,6 +251,7 @@ describe('start', () => {
         'export HOME=/home/node && export HTTPS_PROXY="$NANOCLAW_RESTORE_HTTPS_PROXY" && unset NANOCLAW_RESTORE_HTTPS_PROXY && ' +
         'export NODE_EXTRA_CA_CERTS="$NANOCLAW_RESTORE_NODE_EXTRA_CA_CERTS" && unset NANOCLAW_RESTORE_NODE_EXTRA_CA_CERTS && ' +
         "export AGENT_BROWSER_ARGS='--no-sandbox,--no-zygote' && " +
+        `${cacheEvictor(OPENSHELL_EVICT_IDLE_SECONDS)} && ` +
         "mkdir -p '/workspace' && ln -sfnT '/opt/nanoclaw-mounts/0-agent' '/workspace/agent' && exec bun run /app/src/index.ts",
     ]);
 

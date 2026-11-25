@@ -151,6 +151,11 @@ group with `--memory`/`--cpu`, but the vm driver ignores those flags today
 (ai-openshell/openshell#5744); the host logs a warning once when a size is
 requested.
 
+Memory: while its agent is idle (no heartbeat for
+`NANOCLAW_OPENSHELL_EVICT_IDLE_SECONDS`, default 120; `0` turns it off), a VM
+drops its file cache once, so the pages go back to macOS through the VM's
+free-page-reporting balloon instead of staying held until the VM ends.
+
 ### 6. Restart
 
 ```nc:run effect:restart

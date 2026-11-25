@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseOpenShellSizes } from './config.js';
+import { DEFAULT_EVICT_IDLE_SECONDS, parseEvictIdleSeconds, parseOpenShellSizes } from './config.js';
 
 describe('parseOpenShellSizes', () => {
   it('reads <group>:<memoryMb>[:<cpus>] entries', () => {
@@ -13,5 +13,15 @@ describe('parseOpenShellSizes', () => {
 
   it('skips malformed entries', () => {
     expect([...parseOpenShellSizes('ag-1:lots,ag-2:64,ag-3:1024:x,ag-4:1024:1:9,:1024,')]).toEqual([]);
+  });
+});
+
+describe('parseEvictIdleSeconds', () => {
+  it('defaults, accepts 0 (off) and whole seconds, and ignores junk', () => {
+    expect(parseEvictIdleSeconds('')).toBe(DEFAULT_EVICT_IDLE_SECONDS);
+    expect(parseEvictIdleSeconds('0')).toBe(0);
+    expect(parseEvictIdleSeconds('300')).toBe(300);
+    expect(parseEvictIdleSeconds('-5')).toBe(DEFAULT_EVICT_IDLE_SECONDS);
+    expect(parseEvictIdleSeconds('soon')).toBe(DEFAULT_EVICT_IDLE_SECONDS);
   });
 });

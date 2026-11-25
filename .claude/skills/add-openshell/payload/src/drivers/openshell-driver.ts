@@ -32,7 +32,7 @@ import { log } from '../log.js';
 
 import { validateRuntimeName } from './cli.js';
 import { readApprovedEndpoints, type ApprovedEndpoint } from './openshell/approved-endpoints.js';
-import { OPENSHELL_SIZES } from './openshell/config.js';
+import { OPENSHELL_EVICT_IDLE_SECONDS, OPENSHELL_SIZES } from './openshell/config.js';
 import { startForwarder, type Forwarder } from './openshell/forwarder.js';
 import {
   RUNNER_LOG,
@@ -302,6 +302,7 @@ export class OpenShellSessionDriver implements SessionDriver {
       imageEnv: await imageEnvOf(spec.containers[0]?.image),
       approvedEndpoints: this.#approvedEndpoints(spec.key.agentGroupId),
       size: OPENSHELL_SIZES.get(spec.key.agentGroupId),
+      evictIdleSeconds: OPENSHELL_EVICT_IDLE_SECONDS,
     });
     for (const drop of plan.dropped) {
       log.debug('OpenShell: mount not realized separately', { name, ...drop });

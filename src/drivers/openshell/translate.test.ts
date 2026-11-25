@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { MountSpec, SessionSpec } from '../types.js';
 import {
+  cacheEvictor,
   effectiveEnv,
   OPENSHELL_FILES_DIR,
   sandboxName,
@@ -456,6 +457,15 @@ describe('translateSpec: policy', () => {
       'nanoclaw-group-folder': 'main',
     });
     expect(plan.unsizedResources).toEqual(['pidsLimit', 'shmSizeMb']);
+  });
+
+  it('adds the idle cache evictor to the prelude only when enabled', () => {
+    const script = (o: Partial<TranslateOptions>) => translateSpec(realisticSpec(), { ...opts(), ...o }).command[2];
+    expect(script({ evictIdleSeconds: 120 })).toContain(cacheEvictor(120));
+    expect(script({ evictIdleSeconds: 0 })).not.toContain('iflag=nocache');
+    expect(script({})).not.toContain('iflag=nocache');
+    expect(cacheEvictor(120)).toContain('-lt 120 ]');
+    expect(cacheEvictor(120)).toMatch(/^\{ \( .* \) <\/dev\/null >\/dev\/null 2>&1 & \}$/);
   });
 
   it('sizes the VM from the group override, else the spec resources', () => {
