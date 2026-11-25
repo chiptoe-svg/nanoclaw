@@ -71,6 +71,10 @@ keeps an already-running Docker container until it exits.
 9. **OpenShell does not capture the workload's stdout/stderr.** → driver writes
    `data/openshell-logs/<name>/runner.log` (timestamped with `$EPOCHREALTIME`,
    previous run kept as `prev-runner.log`) and logs the tail on a non-zero exit.
+10. **Driver events ran inside the caller's AsyncLocalStorage scope**: when the
+    idle check stopped a VM, the follow-up sweep inherited that session's
+    mailbox context and failed with "Nested mailbox session" (hourly, lab only).
+    → events are delivered from a neutral `AsyncResource` scope (`69783470`).
 
 ## Verified (live, lab agent in a MicroVM)
 
@@ -122,8 +126,33 @@ keeps an already-running Docker container until it exits.
 - **Memory**: one running VM ≈ 1.4 GB host RSS (relevant to keeping idle VMs
   alive).
 - **Soak test** started 2026-11-24 17:27: hourly task `vm-soak-5935` on the lab
-  group (new VM per run). Check runs/failures, leftover sandboxes, VM memory,
-  `data/openshell-logs/`, and `logs/nanoclaw.error.log`.
+  group (new VM per run). Result to 2026-11-25 07:07: 14 runs, 0 failures; no
+  "Nested mailbox session" error after the fix (last one 21:37, fix 22:13).
+
+## Remote mailbox on plain Docker + OneCLI (2026-11-25)
+
+The remote mailbox needs no OpenShell. With the group in
+`NANOCLAW_REMOTE_MAILBOX_GROUPS` and *not* in `NANOCLAW_OPENSHELL_GROUPS`, lab
+ran in an ordinary Docker container behind OneCLI and the relay, with no
+session DB mounted (`/workspace/inbound.db` absent). All passed:
+
+- scheduled task, reply to its destination, and a follow-up task the agent
+  scheduled itself (fired 2 min later);
+- `ncl groups get` from inside the container;
+- outbound HTTPS through OneCLI (200);
+- sending a file (outbox upload) and reading an inbound attachment (inbox sync);
+- question card → answer → agent continues;
+- host restart with the container live: adopted, next reply in 2 s.
+
+Same day the agent-side mailbox SQL became one file shared by the runner and
+the host (`src/mailbox/sqlite-operations.ts`, copied into the runner by
+`pnpm mailbox-model:generate`), so the remote path runs the same SQL as the
+mounted one; the host-side port shrank from 542 to 54 lines.
+
+Upstream fit: CONTRIBUTING accepts only fixes, security fixes and
+simplifications in core; features ship as skills. The viable shape is an
+`/add-remote-mailbox` skill plus a small core spawn/exit hook on the mailbox
+seam (ask on #4543 first).
 
 ## Credentials from OpenShell providers (per group, opt-in)
 
