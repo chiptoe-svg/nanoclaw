@@ -430,6 +430,24 @@ Cold-start breakdown in a VM (from message sent):
 Not causes: virtiofs file reads in general, Bun startup itself, first launch
 of the Claude binary (126 ms vs 5 ms).
 
+## VM memory (2026-11-25, v0.1.10)
+
+- Per-sandbox `--memory`/`--cpu` are accepted and ignored by the vm driver: a
+  VM created with `--memory 768Mi --cpu 1` still had ~2 GB / 2 CPUs (gateway
+  `mem_mib`/`vcpus`). Tracked upstream in ai-openshell/openshell#5744 (we
+  commented). The driver already passes them (`NANOCLAW_OPENSHELL_SIZES`, or the
+  install-wide container limits) and warns once that they're not applied.
+- Set `mem_mib = 1024` under `[openshell.drivers.vm]` in
+  `~/.config/openshell/gateway.toml` (backup `gateway.toml.before-1g`); a new VM
+  then reports MemTotal ≈ 1 GB. Not yet tried with a real agent turn (browser use
+  may need more).
+- An idle VM is small: ~167 MB host RSS; inside, 48 MB used, kernel (slab,
+  stacks, page tables) ~16 MB, Linux 6.12. Trimming the kernel would gain little.
+- Freed guest memory is NOT returned to the host: after a 600 MB allocation was
+  freed in the guest (guest `free`: 53 MB used), the VM process stayed at ~870 MB
+  RSS. A VM's footprint is its high-water mark until the sandbox is deleted, so
+  the gateway cap is the effective control (and sessions ending frees it all).
+
 ## Upstream state (checked 2026-11-24)
 
 - **OpenShell v0.1.10** (2026-11-24): weekly cadence continues (~120 merged

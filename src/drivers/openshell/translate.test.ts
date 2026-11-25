@@ -457,6 +457,15 @@ describe('translateSpec: policy', () => {
     });
     expect(plan.unsizedResources).toEqual(['pidsLimit', 'shmSizeMb']);
   });
+
+  it('sizes the VM from the group override, else the spec resources', () => {
+    const spec = realisticSpec();
+    spec.resources = { ...spec.resources, memoryMb: 2048, cpus: '2' };
+    expect(translateSpec(spec, opts()).size).toEqual({ memoryMb: 2048, cpus: '2' });
+    expect(translateSpec(spec, { ...opts(), size: { memoryMb: 1024 } }).size).toEqual({ memoryMb: 1024 });
+    expect(translateSpec(realisticSpec(), opts()).size).toEqual({});
+    expect(translateSpec(spec, opts()).unsizedResources).toEqual(['pidsLimit', 'shmSizeMb']);
+  });
 });
 
 /**

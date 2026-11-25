@@ -32,6 +32,7 @@ import { log } from '../log.js';
 
 import { validateRuntimeName } from './cli.js';
 import { readApprovedEndpoints, type ApprovedEndpoint } from './openshell/approved-endpoints.js';
+import { OPENSHELL_SIZES } from './openshell/config.js';
 import { startForwarder, type Forwarder } from './openshell/forwarder.js';
 import {
   RUNNER_LOG,
@@ -75,6 +76,8 @@ const LINT_TIMEOUT_MS = 15_000;
 /** Old CLIs reject the unknown subcommand at argument parsing. */
 const LINT_MISSING = /unrecognized subcommand|unknown (sub)?command|invalid subcommand|unexpected argument 'lint'/i;
 const FORWARD_ANNOTATION = 'nanoclaw-forward';
+// Once per process: every sized create would otherwise repeat it.
+let warnedUnappliedSize = false;
 
 export function realOpenShellCli(bin = 'openshell'): OpenShellCli {
   return {
@@ -298,6 +301,7 @@ export class OpenShellSessionDriver implements SessionDriver {
       probe: this.#probe,
       imageEnv: await imageEnvOf(spec.containers[0]?.image),
       approvedEndpoints: this.#approvedEndpoints(spec.key.agentGroupId),
+      size: OPENSHELL_SIZES.get(spec.key.agentGroupId),
     });
     for (const drop of plan.dropped) {
       log.debug('OpenShell: mount not realized separately', { name, ...drop });
@@ -589,6 +593,15 @@ export class OpenShellSessionDriver implements SessionDriver {
       // from the HOST's environment: a missing provider fails the create.
       for (const provider of plan.providers) args.push('--provider', provider);
       args.push('--no-auto-providers');
+    }
+    if (plan.size.memoryMb !== undefined) args.push('--memory', `${plan.size.memoryMb}Mi`);
+    if (plan.size.cpus !== undefined) args.push('--cpu', plan.size.cpus);
+    if ((plan.size.memoryMb !== undefined || plan.size.cpus !== undefined) && !warnedUnappliedSize) {
+      warnedUnappliedSize = true;
+      log.warn(
+        "OpenShell: the vm compute driver ignores per-sandbox --memory/--cpu (ai-openshell/openshell#5744); the gateway's mem_mib/vcpus apply",
+        { requested: plan.size },
+      );
     }
     for (const [k, v] of Object.entries(plan.env)) args.push('--env', `${k}=${v}`);
     // The contributed lane carries credential-NAMED values (a per-spawn

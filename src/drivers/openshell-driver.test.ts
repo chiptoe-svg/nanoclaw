@@ -206,6 +206,23 @@ describe('prepare', () => {
 });
 
 describe('start', () => {
+  it('requests the spec resources as --memory/--cpu', async () => {
+    const sized = spec();
+    sized.resources = { ...sized.resources, memoryMb: 1024, cpus: '1' };
+    const handle = await driver.prepare(sized);
+    await handle.start();
+    const args = cli.argsOf('create')!;
+    expect(args[args.indexOf('--memory') + 1]).toBe('1024Mi');
+    expect(args[args.indexOf('--cpu') + 1]).toBe('1');
+  });
+
+  it('passes no size flags when nothing is requested', async () => {
+    const handle = await driver.prepare(spec());
+    await handle.start();
+    expect(cli.argsOf('create')).not.toContain('--memory');
+    expect(cli.argsOf('create')).not.toContain('--cpu');
+  });
+
   it('creates the sandbox from the translated plan, secrets off argv', async () => {
     const handle = await driver.prepare(spec());
     await handle.start();

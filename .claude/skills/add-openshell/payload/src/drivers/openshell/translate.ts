@@ -144,6 +144,13 @@ export interface TranslateOptions {
    * else refuses the spec.
    */
   approvedEndpoints?: readonly ApprovedEndpoint[];
+  /** Per-group VM size (NANOCLAW_OPENSHELL_SIZES); falls back to the spec's install-wide resources. */
+  size?: VmSize;
+}
+
+export interface VmSize {
+  memoryMb?: number;
+  cpus?: string;
 }
 
 export interface VmMount {
@@ -210,8 +217,10 @@ export interface SandboxPlan {
   policy: OpenShellPolicy;
   /** Present when a proxy URL was re-pointed: forwarder listen → host target port. */
   forward?: { listenPort: number; targetPort: number };
-  /** Spec resources the VM cannot size per sandbox (gateway-wide). */
+  /** Spec resources the sandbox has no flag for. */
   unsizedResources: (keyof SessionResources)[];
+  /** Requested with `--memory` / `--cpu`. The vm compute driver ignores both today (ai-openshell/openshell#5744). */
+  size: VmSize;
   /**
    * OpenShell providers to attach (`--provider`), by name. Each injects its
    * credential env as a placeholder and contributes its own `_provider_*`
@@ -609,8 +618,12 @@ export function translateSpec(spec: SessionSpec, opts: TranslateOptions): Sandbo
     policy.network_policies[APPROVED_RULE] = { name: APPROVED_RULE, endpoints: approved, binaries: [{ path: '/**' }] };
   }
 
+  const size: VmSize = opts.size ?? {
+    ...(spec.resources.memoryMb !== undefined ? { memoryMb: spec.resources.memoryMb } : {}),
+    ...(spec.resources.cpus !== undefined ? { cpus: spec.resources.cpus } : {}),
+  };
   const unsizedResources = (Object.keys(spec.resources) as (keyof SessionResources)[]).filter(
-    (k) => spec.resources[k] !== undefined,
+    (k) => spec.resources[k] !== undefined && k !== 'memoryMb' && k !== 'cpus',
   );
 
   return {
@@ -627,6 +640,7 @@ export function translateSpec(spec: SessionSpec, opts: TranslateOptions): Sandbo
     policy,
     forward,
     unsizedResources,
+    size,
     providers: credentialProviders(spec),
   };
 }

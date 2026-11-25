@@ -90,6 +90,7 @@ payload/src/drivers/openshell/approved-endpoints.test.ts -> src/drivers/openshel
 payload/src/drivers/openshell/composite.ts -> src/drivers/openshell/composite.ts
 payload/src/drivers/openshell/composite.test.ts -> src/drivers/openshell/composite.test.ts
 payload/src/drivers/openshell/config.ts -> src/drivers/openshell/config.ts
+payload/src/drivers/openshell/config.test.ts -> src/drivers/openshell/config.test.ts
 payload/src/drivers/openshell/fake-openshell.ts -> src/drivers/openshell/fake-openshell.ts
 payload/src/drivers/openshell/forwarder.ts -> src/drivers/openshell/forwarder.ts
 payload/src/drivers/openshell/register.ts -> src/drivers/openshell/register.ts
@@ -142,6 +143,13 @@ NANOCLAW_RUNTIME_DRIVER=remote-mailbox
 If `.env` already sets any of these keys to something else, update it by hand.
 `NANOCLAW_OPENSHELL_FORWARD_PORT` (default 18755) moves the loopback proxy
 forwarder if that port is taken.
+
+VM size: OpenShell's vm compute driver sizes every VM from `mem_mib` and
+`vcpus` in `~/.config/openshell/gateway.toml`. `NANOCLAW_OPENSHELL_SIZES`
+(`<agentGroupId>:<memoryMb>[:<cpus>]`, comma-separated) requests a size per
+group with `--memory`/`--cpu`, but the vm driver ignores those flags today
+(ai-openshell/openshell#5744); the host logs a warning once when a size is
+requested.
 
 ### 6. Restart
 
