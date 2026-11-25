@@ -31,6 +31,10 @@
  *   becomes `host.openshell.internal` in every env value, and the proxy URLs
  *   are re-pointed at a host-side loopback forwarder the driver runs. The
  *   policy admits exactly the host ports the rewritten env names.
+ * - Credentials from OpenShell providers (`spec.credentialProviders`): the
+ *   names become `--provider` attachments. The gateway contributes no proxy
+ *   env for such a session, so no forwarder and no `tls: skip` endpoint is
+ *   planned; the provider's own policy entries open its endpoints.
  */
 import { createHash } from 'crypto';
 import path from 'path';
@@ -197,6 +201,13 @@ export interface SandboxPlan {
   forward?: { listenPort: number; targetPort: number };
   /** Spec resources the VM cannot size per sandbox (gateway-wide). */
   unsizedResources: (keyof SessionResources)[];
+  /**
+   * OpenShell providers to attach (`--provider`), by name. Each injects its
+   * credential env as a placeholder and contributes its own `_provider_*`
+   * policy entries (its endpoints, for its binaries only), so nothing for
+   * them is added to `policy` here. Empty for every other session.
+   */
+  providers: string[];
 }
 
 /** The environment the agent process ends up with: both lanes, aliases restored, contributed winning. */
@@ -554,5 +565,6 @@ export function translateSpec(spec: SessionSpec, opts: TranslateOptions): Sandbo
     policy,
     forward,
     unsizedResources,
+    providers: [...(spec.credentialProviders ?? [])],
   };
 }

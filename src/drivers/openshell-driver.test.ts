@@ -226,6 +226,33 @@ describe('start', () => {
     expect(await handle.status()).toEqual({ phase: 'running' });
   });
 
+  it('attaches credential providers by name and never auto-creates one', async () => {
+    const handle = await driver.prepare({ ...spec(), credentialProviders: ['nc-claude-lab', 'nc-github-lab'] });
+    await handle.start();
+    const args = cli.argsOf('create')!;
+    const flags = args.slice(0, args.indexOf('--'));
+    expect(flags.flatMap((a, i) => (a === '--provider' ? [args[i + 1]] : []))).toEqual([
+      'nc-claude-lab',
+      'nc-github-lab',
+    ]);
+    expect(flags).toContain('--no-auto-providers');
+    expect(flags).not.toContain('--auto-providers');
+  });
+
+  it('adds no provider flags for a session without credential providers', async () => {
+    const handle = await driver.prepare(spec());
+    await handle.start();
+    const args = cli.argsOf('create')!;
+    expect(args).not.toContain('--provider');
+    expect(args).not.toContain('--no-auto-providers');
+  });
+
+  it('refuses a provider name that is not a plain name', async () => {
+    await expect(driver.prepare({ ...spec(), credentialProviders: ['--gateway=evil'] })).rejects.toMatchObject({
+      kind: 'spec-invalid',
+    });
+  });
+
   it('maps runtime failures into the taxonomy and leaves nothing behind', async () => {
     const handle = await driver.prepare(spec());
     cli.failNext.push({ match: /^sandbox create/, message: 'transport error: connection refused' });
@@ -335,6 +362,7 @@ describe('surface', () => {
   it('declares capabilities honestly', async () => {
     expect(driver.capabilities()).toEqual({
       isolationTiers: ['vm', 'container'],
+      credentialProviders: true,
       admissionEnforced: false,
       networkPolicy: 'declarative',
       encryptedVolumes: false,

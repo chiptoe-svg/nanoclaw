@@ -413,6 +413,71 @@ describe('translateSpec: policy', () => {
   });
 });
 
+/**
+ * A group whose credentials come from OpenShell providers: the gateway
+ * contributes provider names and nothing else — no proxy env, CA or stub
+ * mounts. Only the mailbox lane remains in the contributed env.
+ */
+function openshellCredentialSpec(): SessionSpec {
+  const spec = realisticSpec();
+  const agent = spec.containers[0];
+  const keep = ['NANOCLAW_MAILBOX_URL', 'NANOCLAW_MAILBOX_TOKEN', 'NANOCLAW_MAILBOX_SESSION'];
+  agent.contributedEnv = {
+    ...Object.fromEntries(Object.entries(agent.contributedEnv ?? {}).filter(([k]) => keep.includes(k))),
+    NO_PROXY: 'host.docker.internal',
+    no_proxy: 'host.docker.internal',
+  };
+  agent.mounts = agent.mounts.filter((m) => !m.hostPath.includes('/onecli/'));
+  return {
+    ...spec,
+    containers: [agent],
+    networkAccess: { endpoint: 'host.openshell.internal', target: { kind: 'host' } },
+    credentialProviders: ['nc-claude-lab', 'nc-github-lab'],
+  };
+}
+
+describe('translateSpec: OpenShell credential providers', () => {
+  it('plans provider attachments by name, with no gateway proxy, CA or forwarder', () => {
+    const plan = translateSpec(openshellCredentialSpec(), opts());
+    expect(plan.providers).toEqual(['nc-claude-lab', 'nc-github-lab']);
+    expect(plan.forward).toBeUndefined();
+    const env = effectiveEnv(plan);
+    for (const key of [
+      'HTTPS_PROXY',
+      'HTTP_PROXY',
+      'https_proxy',
+      'http_proxy',
+      'SSL_CERT_FILE',
+      'NODE_EXTRA_CA_CERTS',
+    ]) {
+      expect(env[key]).toBeUndefined();
+    }
+    // Placeholders are OpenShell's to inject: nothing credential-named is planned.
+    expect(
+      Object.keys(env).filter((k) => /CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_(AUTH_TOKEN|API_KEY|BASE_URL)/.test(k)),
+    ).toEqual([]);
+    expect(env.NANOCLAW_MAILBOX_URL).toBe('http://host.openshell.internal:18770/v1/mailbox');
+    expect(plan.staged).toEqual([]);
+    // OpenShell keeps its own CA for the TLS it inspects; no follower exports.
+    expect(plan.command[2]).not.toMatch(/CURL_CA_BUNDLE|SSL_CERT_FILE/);
+  });
+
+  it('opens only the mailbox port on the host, inspected (no tls: skip); providers bring their own entries', () => {
+    const plan = translateSpec(openshellCredentialSpec(), opts());
+    expect(plan.policy.network_policies).toEqual({
+      nanoclaw_host: {
+        name: 'nanoclaw_host',
+        endpoints: [{ host: 'host.openshell.internal', ports: [18770] }],
+        binaries: [{ path: '/**' }],
+      },
+    });
+  });
+
+  it('plans no providers for any other session', () => {
+    expect(translateSpec(realisticSpec(), opts()).providers).toEqual([]);
+  });
+});
+
 describe('sandboxName', () => {
   it('is key-derived, stable, and fits the 19-character OpenShell limit', () => {
     const a = sandboxName({ installSlug: 'e85a96b1', agentGroupId: 'g', sessionId: 'sess-1795545516491-abcdef' });

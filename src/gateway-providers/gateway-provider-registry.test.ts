@@ -19,6 +19,8 @@ beforeEach(async () => {
 
 afterEach(() => {
   delete process.env.NANOCLAW_GATEWAY_PROVIDER;
+  delete process.env.NANOCLAW_OPENSHELL_CREDENTIALS;
+  delete process.env.NANOCLAW_OPENSHELL_GROUPS;
   vi.resetModules();
 });
 
@@ -74,6 +76,49 @@ describe('gateway provider registry', () => {
     expect(gateway.selectGatewayAgentSkills(['welcome', 'inactive-skill'])).toEqual(['welcome', 'active-skill']);
   });
 
+  it('orchestrates the registered definition itself when no group takes OpenShell credentials', async () => {
+    process.env.NANOCLAW_GATEWAY_PROVIDER = 'active';
+    const registry = await import('./gateway-provider-registry.js');
+    const active = fixture('active', ['active-skill'], []);
+    registry.registerGatewayProvider(active);
+    const gateway = await import('./index.js');
+    expect(gateway.getGatewayProvider()).toBe(active);
+    expect(gateway.selectGatewayAgentSkills(['welcome'], 'lab')).toEqual(['welcome', 'active-skill']);
+  });
+
+  it('partitions per group when NANOCLAW_OPENSHELL_CREDENTIALS opts a group in', async () => {
+    process.env.NANOCLAW_GATEWAY_PROVIDER = 'active';
+    process.env.NANOCLAW_OPENSHELL_GROUPS = 'lab';
+    process.env.NANOCLAW_OPENSHELL_CREDENTIALS = 'lab:nc-claude-lab';
+    vi.resetModules(); // config reads the settings at import
+    const calls: string[] = [];
+    const registry = await import('./gateway-provider-registry.js');
+    const active = fixture('active', ['active-skill'], calls);
+    registry.registerGatewayProvider(active);
+    const gateway = await import('./index.js');
+    const selected = gateway.getGatewayProvider();
+    expect(selected).not.toBe(active);
+    expect(selected.kind).toBe('active');
+    expect(selected.approvals).toBe(active.approvals);
+    expect(selected.sessions.gatedByApprovals!('lab')).toBe(false);
+    expect(selected.sessions.gatedByApprovals!('g1')).toBe(true);
+    await selected.sessions.ensure(input, new AbortController().signal);
+    expect(calls).toEqual(['ensure:test/g1/s1:false']);
+    // The opted group is not told about the install gateway; every other group is.
+    expect(gateway.selectGatewayAgentSkills(['welcome', 'active-skill'], 'lab')).toEqual(['welcome']);
+    expect(gateway.selectGatewayAgentSkills(['welcome'], 'g1')).toEqual(['welcome', 'active-skill']);
+  });
+
+  it('refuses to start on a malformed NANOCLAW_OPENSHELL_CREDENTIALS', async () => {
+    process.env.NANOCLAW_GATEWAY_PROVIDER = 'active';
+    process.env.NANOCLAW_OPENSHELL_CREDENTIALS = 'lab';
+    vi.resetModules(); // config reads the settings at import
+    const registry = await import('./gateway-provider-registry.js');
+    registry.registerGatewayProvider(fixture('active', [], []));
+    const gateway = await import('./index.js');
+    expect(() => gateway.getGatewayProvider()).toThrow(/NANOCLAW_OPENSHELL_CREDENTIALS/);
+  });
+
   it('fails closed when the selected registration is missing', async () => {
     process.env.NANOCLAW_GATEWAY_PROVIDER = 'missing';
     const gateway = await import('./index.js');
@@ -126,7 +171,8 @@ describe('gateway provider registry', () => {
     const installedModules = [...installed.matchAll(/^import ['"]\.\/(.+?)\.js['"];$/gm)].map((match) => match[1]);
     for (const module of installedModules) {
       const source = fs.readFileSync(path.join(dir, `${module}.ts`), 'utf8');
-      expect(source.match(/registerGatewayProvider\(/g), module).toHaveLength(1);
+      // One registration per installed module: a gateway, or a partition over it.
+      expect(source.match(/registerGateway(Provider|Partition)\(/g), module).toHaveLength(1);
     }
   });
 });

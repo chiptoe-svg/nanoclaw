@@ -245,12 +245,26 @@ export async function abortGatewaySessionObservers(reason = 'host-shutdown'): Pr
   );
 }
 
+/**
+ * Whether the selected gateway's approval bridge gates this group's sessions.
+ * True for every group unless a partitioned gateway serves the group's
+ * credentials from another source (see gateway-providers/partition.ts).
+ */
+function gatedByApprovals(agentGroupId: string): boolean {
+  return getGatewayProvider().sessions.gatedByApprovals?.(agentGroupId) ?? true;
+}
+
 /** Fail closed when the selected gateway can no longer authorize requests. */
 export function stopGatewaySessionsForUnavailability(reason: string): void {
   gatewayUnavailableReason = reason;
   gatewayAdmissionGeneration++;
-  log.error('Gateway unavailable; stopping active sessions', { reason, sessions: activeContainers.size });
-  for (const sessionId of activeContainers.keys()) killContainer(sessionId, 'gateway-unavailable');
+  const gated = [...activeContainers].filter(([, runtime]) => gatedByApprovals(runtime.handle.key.agentGroupId));
+  log.error('Gateway unavailable; stopping active sessions', {
+    reason,
+    sessions: gated.length,
+    ...(gated.length !== activeContainers.size ? { notGated: activeContainers.size - gated.length } : {}),
+  });
+  for (const [sessionId] of gated) killContainer(sessionId, 'gateway-unavailable');
 }
 
 /**
@@ -585,8 +599,8 @@ async function spawnContainer(session: Session): Promise<void> {
     },
     beforeStart: () => {
       if (
-        gatewayUnavailableReason ||
-        admissionGeneration !== gatewayAdmissionGeneration ||
+        (gatedByApprovals(agentGroup.id) &&
+          (gatewayUnavailableReason || admissionGeneration !== gatewayAdmissionGeneration)) ||
         gatewaySession.controller.signal.aborted
       ) {
         throw new Error('Gateway session admission closed before agent start');
@@ -715,14 +729,15 @@ export function watchGatewayAvailability(
 }
 
 async function ensureGatewaySession(input: GatewaySessionInput): Promise<GatewaySessionControl> {
-  if (gatewayUnavailableReason) {
+  const gated = gatedByApprovals(input.key.agentGroupId);
+  if (gated && gatewayUnavailableReason) {
     throw new Error(`Gateway session admission is closed: ${gatewayUnavailableReason}`);
   }
   const controller = new AbortController();
   const generation = gatewayAdmissionGeneration;
   try {
     const session = { lease: await getGatewayProvider().sessions.ensure(input, controller.signal), controller };
-    if (gatewayUnavailableReason || generation !== gatewayAdmissionGeneration) {
+    if (gated && (gatewayUnavailableReason || generation !== gatewayAdmissionGeneration)) {
       await releaseGatewaySession(session, { kind: 'host-detached', reason: 'admission-closed' });
       throw new Error('Gateway session admission closed while acquiring lease');
     }
@@ -1167,7 +1182,7 @@ export async function resolveProviderContribution(
     sessionDir: sessionDir(agentGroup.id, session.id),
     agentGroupId: agentGroup.id,
     groupDir: path.resolve(GROUPS_DIR, agentGroup.folder),
-    selectedSkills: selectedSkillNames(containerConfig),
+    selectedSkills: selectedSkillNames(containerConfig, agentGroup.id),
     hostEnv: process.env,
   };
   if (!contract) return { provider, contribution: fn ? await fn(context) : {} };
@@ -1220,20 +1235,25 @@ export async function buildMounts(
       agentGroup.id,
       groupDir,
       sessDir,
-      selectedSkillNames(containerConfig),
+      selectedSkillNames(containerConfig, agentGroup.id),
       {
         legacyOverlay: async () => providerContribution,
         composeProjectDocument: (spec) =>
-          composeGroupProjectDoc(agentGroup, groupDir, spec, selectedSkillNames(containerConfig)),
+          composeGroupProjectDoc(agentGroup, groupDir, spec, selectedSkillNames(containerConfig, agentGroup.id)),
       },
     );
     skillBackingPaths = providerSurfaces.skillBackingPaths;
   } else if (defaultSurfaces) {
-    syncSkillSymlinks(claudeDir, containerConfig);
+    syncSkillSymlinks(claudeDir, containerConfig, agentGroup.id);
 
     // Compose CLAUDE.md fresh every spawn: every instruction source inlined
     // into one flat file. See `project-doc-compose.ts`.
-    await composeGroupProjectDoc(agentGroup, groupDir, DEFAULT_PROJECT_DOC, selectedSkillNames(containerConfig));
+    await composeGroupProjectDoc(
+      agentGroup,
+      groupDir,
+      DEFAULT_PROJECT_DOC,
+      selectedSkillNames(containerConfig, agentGroup.id),
+    );
   }
 
   const mounts: VolumeMount[] = [];
@@ -1553,6 +1573,9 @@ export function composeSessionSpec(input: ComposeSessionSpecInput): SessionSpec 
     containers: [agent, ...(gateway.containers ?? [])],
     network: 'shared-private',
     networkAccess: gateway.networkAccess,
+    // Only when the gateway attaches runtime-native providers: every other
+    // spec carries no such key at all.
+    ...(gateway.credentialProviders ? { credentialProviders: [...gateway.credentialProviders] } : {}),
     hardening: 'standard',
     resources: {
       cpus: CONTAINER_CPU_LIMIT || undefined,
@@ -1623,12 +1646,13 @@ export function parsePidsLimit(value: string): number | undefined {
 export function syncSkillSymlinks(
   claudeDir: string,
   containerConfig: import('./container-config.js').ContainerConfig,
+  agentGroupId?: string,
 ): string[] {
   // Same body as the declared-contract path; real (non-symlink) entries are
   // either a template overlay (intentional; see src/group-skills.ts) or a stale
   // pre-refactor skill copy that shadows the shared skill (#3001), so the
   // skip is surfaced as a warning.
-  const selected = selectedSkillNames(containerConfig);
+  const selected = selectedSkillNames(containerConfig, agentGroupId);
   syncSharedSkillLinks(claudeDir, ['skills'], selected, true);
   return selected;
 }
@@ -1637,7 +1661,10 @@ export function syncSkillSymlinks(
  * Resolve the group's skill selection to concrete names — `'all'` recomputes
  * from `container/skills/` so newly-added upstream skills appear automatically.
  */
-function selectedSkillNames(containerConfig: import('./container-config.js').ContainerConfig): string[] {
+function selectedSkillNames(
+  containerConfig: import('./container-config.js').ContainerConfig,
+  agentGroupId?: string,
+): string[] {
   const sharedSkillsDir = path.join(process.cwd(), 'container', 'skills');
   const available = fs.existsSync(sharedSkillsDir)
     ? fs.readdirSync(sharedSkillsDir).filter((e) => {
@@ -1649,7 +1676,7 @@ function selectedSkillNames(containerConfig: import('./container-config.js').Con
       })
     : [];
   const selected = containerConfig.skills === 'all' ? available : containerConfig.skills;
-  return selectGatewayAgentSkills(selected);
+  return selectGatewayAgentSkills(selected, agentGroupId);
 }
 
 // Argument lists, not shell strings: DATA_DIR is the install folder, which may hold spaces.

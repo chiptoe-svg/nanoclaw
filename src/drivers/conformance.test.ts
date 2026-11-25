@@ -391,6 +391,45 @@ describe('conformance: the isolation-tier rule (validateSpec is the shared layer
   });
 });
 
+describe('conformance: runtime-native credential providers (validateSpec is the shared layer)', () => {
+  const capabilities = (credentialProviders?: boolean): DriverCapabilities => ({
+    isolationTiers: ['container'],
+    admissionEnforced: false,
+    networkPolicy: 'declarative',
+    encryptedVolumes: false,
+    unrealized: [],
+    sharedNetworkNamespace: false,
+    auxiliaryContainers: false,
+    imageBuild: false,
+    ...(credentialProviders === undefined ? {} : { credentialProviders }),
+  });
+
+  it('accepts provider names only from a driver that declares it attaches them', () => {
+    const spec = fixtureSpec({ credentialProviders: ['nc-claude-lab'] });
+    expect(() => validateSpec(spec, FIXTURE_POLICY, capabilities(true))).not.toThrow();
+    for (const caps of [capabilities(false), capabilities(), undefined]) {
+      expect(() => validateSpec(spec, FIXTURE_POLICY, caps)).toThrow(/cannot attach them/);
+    }
+  });
+
+  it('refuses anything that is not a plain provider name', () => {
+    for (const name of ['', '-x', '--auto-providers', 'a b', 'a=b', 'x'.repeat(64)]) {
+      expect(() =>
+        validateSpec(fixtureSpec({ credentialProviders: [name] }), FIXTURE_POLICY, capabilities(true)),
+      ).toThrow(/invalid credential provider name/);
+    }
+  });
+
+  eachDriver('a driver without the capability refuses the spec before touching the runtime', async (h) => {
+    if (h.driver.capabilities().credentialProviders) return;
+    await expect(h.driver.prepare(fixtureSpec({ credentialProviders: ['nc-claude-lab'] }))).rejects.toMatchObject({
+      kind: 'spec-invalid',
+      retryable: false,
+    });
+    expect(h.cli.calls.some((c) => c.args[0] === 'create')).toBe(false);
+  });
+});
+
 describe('conformance: admission judges the path the runtime mounts', () => {
   eachDriver('refuses a mount whose path escapes its root lexically', async (h) => {
     const spec = fixtureSpec();

@@ -139,6 +139,13 @@ export interface SessionSpec {
   network: 'shared-private' | 'none';
   /** Selected gateway destination for this session. */
   networkAccess: NetworkAccessIntent;
+  /**
+   * Runtime-native credential providers attached by name (the gateway
+   * contribution's `credentialProviders`). Absent for every session whose
+   * gateway does not use them. Only a driver declaring
+   * `capabilities().credentialProviders` may realize it; any other refuses.
+   */
+  credentialProviders?: string[];
   /** Named, versioned posture. Drivers map it; raw flags never cross the seam. */
   hardening: 'standard';
   resources: SessionResources;
@@ -294,6 +301,12 @@ export interface DriverCapabilities {
    * a rebuild that cannot happen.
    */
   imageBuild: boolean;
+  /**
+   * Whether this runtime attaches named credential providers that it resolves
+   * at egress (`SessionSpec.credentialProviders`). Absent means no: such a
+   * spec is refused, never realized without its credentials.
+   */
+  credentialProviders?: boolean;
 }
 
 export interface SessionDriver {
@@ -442,6 +455,9 @@ export interface MountPolicy {
   gatewayTrustRoot: string;
 }
 
+/** A provider NAME, never a value: also safe as one argv token. */
+export const CREDENTIAL_PROVIDER_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/;
+
 export function validateSpec(spec: SessionSpec, policy: MountPolicy, capabilities?: DriverCapabilities): void {
   // The tier check is against the caller's declared capabilities — features
   // gate on capabilities, never on driver identity. A caller without a
@@ -450,6 +466,14 @@ export function validateSpec(spec: SessionSpec, policy: MountPolicy, capabilitie
   const tiers = capabilities?.isolationTiers ?? ['container'];
   if (!tiers.includes(spec.runtimeTier)) {
     throw specInvalid(`runtimeTier '${spec.runtimeTier}' not in driver isolation tiers [${tiers.join(', ')}]`);
+  }
+  if (spec.credentialProviders !== undefined) {
+    if (!capabilities?.credentialProviders) {
+      throw specInvalid('spec attaches credential providers, but this driver cannot attach them');
+    }
+    for (const name of spec.credentialProviders) {
+      if (!CREDENTIAL_PROVIDER_NAME.test(name)) throw specInvalid(`invalid credential provider name '${name}'`);
+    }
   }
   if (spec.containers.filter((c) => c.role === 'agent').length !== 1) {
     // Exactly one, not at-least-one: the agent is the session's one required

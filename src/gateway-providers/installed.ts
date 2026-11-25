@@ -6,3 +6,6 @@
  * rewritten to install a gateway.
  */
 import './onecli.js';
+// Prototype: per-group credentials from OpenShell providers (a partition over
+// the selected gateway; inert unless NANOCLAW_OPENSHELL_CREDENTIALS is set).
+import './openshell.js';

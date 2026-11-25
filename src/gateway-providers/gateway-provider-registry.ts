@@ -22,6 +22,12 @@ export interface GatewayContribution {
   labels?: Record<string, string>;
   /** The only network destination this session may use. */
   networkAccess: NetworkAccessIntent;
+  /**
+   * Runtime-native credential providers to attach, by NAME only — the runtime
+   * holds the secrets and swaps them in at egress. A driver that cannot attach
+   * providers refuses the spec (`DriverCapabilities.credentialProviders`).
+   */
+  credentialProviders?: string[];
 }
 
 export interface GatewaySessionInput {
@@ -137,11 +143,26 @@ export interface GatewayProviderDefinition {
   };
   /** Only the selected gateway's skills and instructions reach an agent. */
   agentSkills: readonly string[];
+  /**
+   * Per-group override of `agentSkills`, for a gateway that serves different
+   * groups differently (a partitioned gateway): a group is told only about
+   * the gateway it is actually behind. Absent → `agentSkills` for every group.
+   */
+  agentSkillsFor?(agentGroupId: string): readonly string[];
   sessions: {
     /** Idempotently creates or reconnects whatever this session needs; same call for new and adopted sessions. */
     ensure(input: GatewaySessionInput, signal: AbortSignal): Promise<GatewaySessionLease>;
     /** Called after surviving sessions have been considered for adoption. */
     reapOrphans?(): void | Promise<void>;
+    /**
+     * Whether this group's sessions are authorized through `approvals` — and so
+     * stopped, and refused admission, while that subscription is unavailable.
+     * False only for groups whose credentials this gateway does not broker
+     * through the approval bridge (a partition served by another credential
+     * source); their own lease's `onUnavailable` still applies. Absent → true
+     * for every group (fail closed).
+     */
+    gatedByApprovals?(agentGroupId: string): boolean;
   };
   /** Required for every gateway. Ending while signal is active fails closed. */
   approvals: {
@@ -185,6 +206,25 @@ export function getGatewayProviderRegistration(kind: GatewayProviderKind): Gatew
 
 export function listGatewayProviderRegistrations(): GatewayProviderDefinition[] {
   return [...registry.values()];
+}
+
+/**
+ * A per-group partition an overlay layers over the selected gateway: some
+ * agent groups get their credentials from another source while the install
+ * keeps one selected gateway. At most one; it returns `base` itself when it
+ * serves no group, so an unconfigured partition changes nothing.
+ */
+export type GatewayPartitionComposer = (base: GatewayProviderDefinition) => GatewayProviderDefinition;
+
+let partitionComposer: GatewayPartitionComposer | null = null;
+
+export function registerGatewayPartition(compose: GatewayPartitionComposer): void {
+  if (partitionComposer) throw new Error('A gateway partition is already registered');
+  partitionComposer = compose;
+}
+
+export function getGatewayPartitionComposer(): GatewayPartitionComposer | null {
+  return partitionComposer;
 }
 
 /** The kinds this build can actually run. */

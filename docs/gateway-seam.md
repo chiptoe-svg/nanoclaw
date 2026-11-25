@@ -228,6 +228,24 @@ Only the selected gateway's `agentSkills` reach an agent
 (`selectGatewayAgentSkills`), so a container is never told about a gateway it
 is not behind.
 
+## Per-group partition (prototype)
+
+An overlay can register one partition (`registerGatewayPartition`) over the
+selected gateway. It gives a named set of agent groups another credential
+source, while the install keeps one selected gateway. `getGatewayProvider()`
+returns the composed definition, or the selection itself when the partition
+serves no group. Three optional per-group hooks let core ask the right side:
+
+- `sessions.gatedByApprovals(agentGroupId)`: false exempts a group from
+  approval-bridge outages (stopping sessions and closing admission).
+- `agentSkillsFor(agentGroupId)`: the gateway skills that group is told about.
+- `GatewayContribution.credentialProviders`: names of runtime-native credential
+  providers. They are realized only by a driver that declares
+  `capabilities().credentialProviders`, and every other driver refuses them.
+
+The only partition today is OpenShell credentials
+([openshell-prototype.md](openshell-prototype.md)).
+
 ## How a gateway gets installed
 
 Gateway skills keep their implementation on `main`, in the skill's own

@@ -23,6 +23,7 @@ const envConfig = readEnvFile([
   'NANOCLAW_MAILBOX_PORT',
   'NANOCLAW_OPENSHELL_GROUPS',
   'NANOCLAW_OPENSHELL_FORWARD_PORT',
+  'NANOCLAW_OPENSHELL_CREDENTIALS',
   'WEBHOOK_PORT',
   'WEBHOOK_HOST',
   'NANOCLAW_ABSOLUTE_CEILING_MS',
@@ -152,6 +153,14 @@ export const OPENSHELL_FORWARD_PORT =
   Number.isInteger(openshellForwardPort) && openshellForwardPort > 0 && openshellForwardPort < 65536
     ? openshellForwardPort
     : 18755;
+
+// Credentials from OpenShell providers instead of the install's gateway
+// (prototype) — opt-in per agent group: `<agentGroupId>:<provider>[+<provider>…]`,
+// comma-separated. Raw here; parsed and checked in
+// src/gateway-providers/openshell.ts. Every listed group must also be in
+// NANOCLAW_OPENSHELL_GROUPS. Empty = feature fully off.
+export const OPENSHELL_CREDENTIALS_RAW =
+  process.env.NANOCLAW_OPENSHELL_CREDENTIALS || envConfig.NANOCLAW_OPENSHELL_CREDENTIALS || '';
 
 // Global overrides for the host sweep's two stuck-container timers (see
 // src/reconcile-session.ts). Raw strings: parsed and range-checked where they

@@ -172,6 +172,25 @@ describe('composeSessionSpec', () => {
     expect(spec.containers[0].env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
   });
 
+  it('carries OpenShell credential provider names from the gateway into the spec', () => {
+    const spec = compose({
+      gateway: {
+        credentialProviders: ['nc-claude-lab'],
+        networkAccess: { endpoint: 'host.openshell.internal', target: { kind: 'host' } },
+      },
+    });
+    expect(spec.credentialProviders).toEqual(['nc-claude-lab']);
+    expect(spec.networkAccess).toEqual({ endpoint: 'host.openshell.internal', target: { kind: 'host' } });
+    // Nothing credential-named is composed: OpenShell injects the placeholder.
+    expect(Object.keys(spec.containers[0].contributedEnv ?? {})).toEqual([]);
+  });
+
+  it('a gateway without credential providers composes a spec with no such key at all', () => {
+    const spec = compose({ gateway: { env: { HTTPS_PROXY: 'http://x@host.docker.internal:10255' } } });
+    expect('credentialProviders' in spec).toBe(false);
+    expect(JSON.stringify(spec)).not.toContain('credentialProviders');
+  });
+
   it('passes non-secret mailbox environment on the composed lane', () => {
     expect(compose().containers[0].env.NANOCLAW_MAILBOX_BACKEND).toBe('sqlite');
   });

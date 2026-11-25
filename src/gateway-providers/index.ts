@@ -3,6 +3,7 @@ import { readEnvFile } from '../env.js';
 import { log } from '../log.js';
 
 import {
+  getGatewayPartitionComposer,
   getGatewayProviderRegistration,
   listGatewayProviderKinds,
   listGatewayProviderRegistrations,
@@ -41,16 +42,27 @@ export function getGatewayProvider(): GatewayProviderDefinition {
           'Other gateways arrive as overlays — install the gateway skill or unset the variable.',
       );
     }
-    selected = definition;
-    log.info('Gateway provider selected', { gatewayProvider: selected.kind });
+    log.info('Gateway provider selected', { gatewayProvider: definition.kind });
+    // A registered partition (e.g. OpenShell credentials for opted-in groups)
+    // wraps the selection; it returns the definition itself when unconfigured.
+    const compose = getGatewayPartitionComposer();
+    selected = compose ? compose(definition) : definition;
   }
   return selected;
 }
 
-/** Expose only the active gateway's agent skills; drop any other gateway's. */
-export function selectGatewayAgentSkills(skills: readonly string[]): string[] {
+/**
+ * Expose only the active gateway's agent skills; drop any other gateway's.
+ * With a group id, a partitioned gateway answers for that group, so a group
+ * served by another credential source is not told about the install gateway.
+ */
+export function selectGatewayAgentSkills(skills: readonly string[], agentGroupId?: string): string[] {
   const gatewaySkills = new Set(listGatewayProviderRegistrations().flatMap((entry) => entry.agentSkills));
-  const required = getGatewayProvider().agentSkills;
+  const provider = getGatewayProvider();
+  const required =
+    agentGroupId !== undefined && provider.agentSkillsFor
+      ? provider.agentSkillsFor(agentGroupId)
+      : provider.agentSkills;
   return [...new Set([...skills.filter((skill) => !gatewaySkills.has(skill)), ...required])];
 }
 

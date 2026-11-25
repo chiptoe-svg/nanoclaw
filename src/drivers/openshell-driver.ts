@@ -212,6 +212,8 @@ export class OpenShellSessionDriver implements SessionDriver {
       // A MicroVM is at least container isolation; a group configured for
       // either tier is realizable.
       isolationTiers: ['vm', 'container'],
+      // `--provider`: OpenShell resolves each provider's placeholder at egress.
+      credentialProviders: true,
       admissionEnforced: false,
       // OpenShell enforces egress declaratively from the per-sandbox policy.
       networkPolicy: 'declarative',
@@ -516,6 +518,12 @@ export class OpenShellSessionDriver implements SessionDriver {
     for (const [k, v] of Object.entries(plan.labels)) args.push('--label', `${k}=${v}`);
     if (plan.forward) {
       args.push('--annotation', `${FORWARD_ANNOTATION}=${plan.forward.listenPort}:${plan.forward.targetPort}`);
+    }
+    if (plan.providers.length > 0) {
+      // Attach by name only. Never let the CLI auto-create a missing provider
+      // from the HOST's environment: a missing provider fails the create.
+      for (const provider of plan.providers) args.push('--provider', provider);
+      args.push('--no-auto-providers');
     }
     for (const [k, v] of Object.entries(plan.env)) args.push('--env', `${k}=${v}`);
     // The contributed lane carries credential-NAMED values (a per-spawn

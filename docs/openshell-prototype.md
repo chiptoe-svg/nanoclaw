@@ -121,6 +121,181 @@ keeps an already-running Docker container until it exits.
   group (new VM per run). Check runs/failures, leftover sandboxes, VM memory,
   `data/openshell-logs/`, and `logs/nanoclaw.error.log`.
 
+## Credentials from OpenShell providers (per group, opt-in)
+
+Added 2026-11-24. A group can take its credentials from OpenShell providers
+instead of OneCLI. Every other group, Felix included, is unchanged: with the
+setting empty, the selected gateway object is used as it is, with no wrapper.
+
+### Design
+
+**A partition over the selected gateway, not a second gateway.** The seam
+still selects one gateway per install (`NANOCLAW_GATEWAY_PROVIDER=onecli`).
+`src/gateway-providers/openshell.ts` registers a *partition*
+(`registerGatewayPartition`, used by `getGatewayProvider`). The partition wraps
+the OneCLI definition with `partitionGatewayProvider`
+(`src/gateway-providers/partition.ts`), so every per-group question goes to
+the side that serves that group:
+
+| Question | OneCLI groups | OpenShell-credential groups |
+|---|---|---|
+| `sessions.ensure` (the lease) | OneCLI, unchanged | provider names only: `credentialProviders`, `networkAccess: host` |
+| `sessions.gatedByApprovals(group)` (new, optional) | true | false |
+| `agentSkillsFor(group)` (new, optional) | `onecli-gateway` | none (not told about a proxy it is not behind) |
+| `connections.connect` | OneCLI | `unsupported` |
+| `kind`, `approvals`, `availability` | OneCLI's, as before | not used |
+
+Why a partition and not a second registered gateway: core runs one approval
+coordinator and one availability state, and both are install-wide. A second
+full gateway would need two coordinators. The partition keeps OneCLI as the
+install's only approval bridge and only exempts the groups that never go
+through it. The other option, OpenShell as the only gateway, would move Felix
+off OneCLI, which is out of scope.
+
+**Typed, not argv.** The lease gives provider *names*
+(`GatewayContribution.credentialProviders`). Composition copies them into
+`SessionSpec.credentialProviders`, and that key exists only for these groups.
+Only a driver that declares `capabilities().credentialProviders` may realize
+it. `validateSpec` refuses the spec on any other driver (Docker), and also
+refuses names that are not plain (`[A-Za-z0-9][A-Za-z0-9._-]{0,62}`). The
+OpenShell driver passes `--provider <name>` for each name, plus
+`--no-auto-providers`. That flag matters: without it, the CLI could create a
+missing provider from the *host's* environment.
+
+**What the sandbox gets.** No OneCLI proxy env, no CA or stub mounts, no
+loopback forwarder, and no `tls: skip` endpoint. OpenShell injects each
+provider's env var as a placeholder (`openshell:resolve:env:…`) and swaps in
+the real value at egress. The swap happens only for the profile's endpoints
+and only for its listed binaries. The model client uses the real endpoint,
+because nothing sets `ANTHROPIC_BASE_URL`. NanoClaw never sees a secret.
+
+**Availability.** Core's "gateway unavailable" path
+(`stopGatewaySessionsForUnavailability`, admission closure, and the
+pre-start check) now skips groups for which `gatedByApprovals` is false. So a
+OneCLI outage stops only OneCLI groups. An OpenShell outage cannot reach
+OneCLI groups: their leases come only from OneCLI, and the composite driver
+already isolates spawns. An OpenShell-credential spawn checks
+`openshell provider get` for each provider and fails with the fix if one is
+missing. Adoption skips that check, so an OpenShell blip does not stop a
+surviving sandbox.
+
+**Approvals hook.** The OpenShell side has no approval bridge yet. Its
+`approvals.subscribe` waits until shutdown and never decides anything. The
+next milestone plugs in at the `HOOK` comment in `partition.ts`. There, the
+OpenShell draft-policy subscription joins OneCLI's, and an outage is reported
+per side, so `stopGatewaySessionsForUnavailability` would need a group
+predicate.
+
+### Verified (live, dummy token, 2026-11-24)
+
+I used the real `OpenShellSessionDriver` with a `nc-dev-echo` profile:
+`NC_DEV_ECHO_TOKEN`, bearer auth, `httpbin.org:443`, binaries
+`[/usr/bin/curl]`. The image was the v2 agent image.
+
+- The sandbox env had `NC_DEV_ECHO_TOKEN=openshell:resolve:env:…` and no
+  `*_PROXY` apart from the mailbox `NO_PROXY`. OpenShell's proxy is
+  transparent and sets no proxy variables.
+- `curl https://httpbin.org/headers` with the placeholder returned 200, and the
+  echoed header was `Authorization: Bearer <the dummy value>`. **The swap
+  works.** Our policy file had no entry for httpbin.org, so the provider's own
+  `_provider_*` policy entry opened it.
+- `bun fetch` to the same URL with the provider attached was **blocked**,
+  because Bun is not in the profile's `binaries`.
+- Without the provider, `curl` to httpbin.org was **blocked** (exit 7).
+- A plain-HTTP host port (a stand-in for the mailbox on
+  `host.openshell.internal`) worked **without** `tls: skip`. Any other host was
+  blocked.
+
+### Settings
+
+```
+NANOCLAW_OPENSHELL_CREDENTIALS=<agentGroupId>:<provider>[+<provider>…][,<agentGroupId>:…]
+```
+
+Each group listed here must also be in `NANOCLAW_OPENSHELL_GROUPS` and
+`NANOCLAW_REMOTE_MAILBOX_GROUPS`. If it isn't, its spawns are refused: they
+never fall back to OneCLI. A malformed value stops the host at startup. The
+change applies at the next spawn. A sandbox that is already running keeps the
+OneCLI env it started with until it exits.
+
+### Switch `lab` to OpenShell credentials (about 5 minutes)
+
+You need a Claude subscription setup-token (`claude setup-token` on a
+logged-in machine prints `sk-ant-oat…`). Run these from `~/nanoclaw-v2`:
+
+1. Find the lab group id: `grep NANOCLAW_OPENSHELL_GROUPS .env`.
+2. Save the profile as `/tmp/nanoclaw-claude.yaml`:
+
+   ```yaml
+   id: nanoclaw-claude
+   display_name: NanoClaw Claude (subscription)
+   description: Claude setup-token for the agent SDK's claude binary
+   category: agent
+   credentials:
+     - name: token
+       description: Claude setup-token (sk-ant-oat...)
+       env_vars: [CLAUDE_CODE_OAUTH_TOKEN]
+       required: true
+       auth_style: bearer
+       header_name: Authorization
+   endpoints:
+     - host: api.anthropic.com
+       port: 443
+       protocol: rest
+       access: read-write
+       enforcement: enforce
+   binaries:
+     - /app/node_modules/@anthropic-ai/claude-agent-sdk-linux-arm64/claude
+   ```
+
+3. Import it, then create the provider. The token is read from your shell, so
+   it never appears on the command line or in history:
+
+   ```bash
+   openshell profile lint -f /tmp/nanoclaw-claude.yaml
+   openshell profile import -f /tmp/nanoclaw-claude.yaml
+   read -rs CLAUDE_CODE_OAUTH_TOKEN && export CLAUDE_CODE_OAUTH_TOKEN   # paste, Enter
+   openshell provider create --name lab-claude --type nanoclaw-claude --credential CLAUDE_CODE_OAUTH_TOKEN
+   unset CLAUDE_CODE_OAUTH_TOKEN
+   ```
+
+4. Add `NANOCLAW_OPENSHELL_CREDENTIALS=<lab-id>:lab-claude` to `.env`.
+5. Restart the host with `bash setup/lib/restart.sh`. Then end the running lab
+   sandbox so the next message gets a fresh one:
+   `ncl groups restart --id <lab-id>`.
+6. Check it:
+   - Message lab and confirm it replies.
+   - `grep "OpenShell credential providers applied" logs/nanoclaw.log` should
+     show `providers: ["lab-claude"]`.
+   - In the sandbox,
+     `openshell sandbox exec -n <sandbox> --no-tty -- printenv CLAUDE_CODE_OAUTH_TOKEN`
+     should print an `openshell:resolve:env:` placeholder, not the token.
+
+**Rollback:** remove the `.env` line, then restart. Delete the provider with
+`openshell provider delete lab-claude`.
+
+### Known gaps
+
+- **General egress.** Without the OneCLI proxy, an OpenShell-credential group
+  reaches only the remote mailbox and the endpoints of its attached providers.
+  Web search MCP, git, curl and agent-browser to other hosts are blocked. To
+  give them access, add providers (or provider profiles with `endpoints` and no
+  credentials) for those hosts. NanoClaw has no per-group extra-policy setting
+  yet. The approvals milestone (OpenShell draft rules turned into cards) is the
+  intended route.
+- **Startup still waits for OneCLI.** The host waits for the OneCLI approval
+  subscription before it adopts or spawns anything. If OneCLI is down at host
+  start, OpenShell-credential groups wait too. Only outages *after* startup
+  are scoped per group.
+- **No approvals** for OpenShell-credential groups (see the hook above). The
+  OpenShell side has no health lease, so an OpenShell gateway outage shows up
+  as failed spawns and dying VMs, not as closed admission.
+- Only the Claude provider has been looked at. Codex and OpenCode would need
+  their own profiles (env var, endpoints, binary path). The agent gets no
+  container skill describing the OpenShell credentials.
+- The real setup-token has not been tested yet: only the dummy-token echo
+  check above has.
+
 ## Performance (same prompt, lab agent)
 
 | | Docker | MicroVM |
@@ -189,9 +364,9 @@ Prefer the MicroVM driver on macOS, or the Docker driver on a Linux host.
 
 ## Production backlog (ordered)
 
-1. **Credentials through OpenShell providers** instead of OneCLI: needs a real
-   setup-token test, then a NanoClaw gateway provider (per-agent-group
-   providers + policy).
+1. **Credentials through OpenShell providers** instead of OneCLI: built as a
+   per-group partition (see "Credentials from OpenShell providers"); needs the
+   real setup-token test and a per-group answer for general egress.
 2. **Approvals**: bridge OpenShell pending rules to NanoClaw approval cards
    (rule-level; OpenShell has no per-request hold, #4406), and persist approved
    rules into the group's policy so new sandboxes don't re-ask.

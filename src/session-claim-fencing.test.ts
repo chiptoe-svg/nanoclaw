@@ -538,3 +538,68 @@ it('keeps the lease and claim when full session teardown fails, then retries', a
   await vi.waitFor(() => expect(release).toHaveBeenCalledWith({ kind: 'session-ended', reason: 'runtime-ended' }));
   expect(isContainerRunning('sess-1')).toBe(false);
 });
+
+describe('approval-bridge outage scope (partitioned gateway)', () => {
+  function provider(gated: boolean, ensure?: () => Promise<unknown>) {
+    resetGatewayProvider({
+      kind: 'fixture',
+      agentSkills: [],
+      sessions: {
+        ensure: (ensure ??
+          (async () => ({
+            contribution: { networkAccess: { endpoint: 'localhost', target: { kind: 'host' as const } } },
+          }))) as never,
+        gatedByApprovals: (agentGroupId) => (agentGroupId === 'ag-1' ? gated : true),
+      },
+      approvals: { subscribe: async () => {} },
+    });
+  }
+
+  it('keeps a group the approval bridge does not gate running through an outage', async () => {
+    const runner = await import('./container-runner.js');
+    provider(false);
+    const controls = fakeHandle('sess-1', 'openshell-credentials');
+    snapshots.push({ handle: controls.handle, phase: 'running' } as SupervisedSnapshot);
+    expect((await adoptRunningSessions()).adopted).toBe(1);
+    runner.stopGatewaySessionsForUnavailability('bridge lost');
+    expect(controls.stopped).toEqual([]);
+    expect(isContainerRunning('sess-1')).toBe(true);
+    runner.resumeGatewaySessionAdmission();
+  });
+
+  it('still stops a gated group through the same outage', async () => {
+    const runner = await import('./container-runner.js');
+    provider(true);
+    const controls = fakeHandle('sess-1', 'onecli-credentials');
+    snapshots.push({ handle: controls.handle, phase: 'running' } as SupervisedSnapshot);
+    expect((await adoptRunningSessions()).adopted).toBe(1);
+    runner.stopGatewaySessionsForUnavailability('bridge lost');
+    await vi.waitFor(() => expect(isContainerRunning('sess-1')).toBe(false));
+    expect(controls.stopped).toContain('gateway-unavailable');
+    runner.resumeGatewaySessionAdmission();
+  });
+
+  it('admits a group the bridge does not gate while admission is closed, and keeps a lease acquired across the outage', async () => {
+    const runner = await import('./container-runner.js');
+    let complete!: () => void;
+    const release = vi.fn(async () => {});
+    const ensure = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        complete = resolve;
+      });
+      return { contribution: { networkAccess: { endpoint: 'localhost', target: { kind: 'host' as const } } }, release };
+    });
+    provider(false, ensure);
+    runner.stopGatewaySessionsForUnavailability('bridge lost before adoption');
+    const controls = fakeHandle('sess-1', 'openshell-credentials');
+    snapshots.push({ handle: controls.handle, phase: 'running' } as SupervisedSnapshot);
+    const adopting = adoptRunningSessions();
+    await vi.waitFor(() => expect(ensure).toHaveBeenCalled());
+    runner.stopGatewaySessionsForUnavailability('bridge lost again');
+    complete();
+    expect((await adopting).adopted).toBe(1);
+    expect(release).not.toHaveBeenCalled();
+    expect(isContainerRunning('sess-1')).toBe(true);
+    runner.resumeGatewaySessionAdmission();
+  });
+});
