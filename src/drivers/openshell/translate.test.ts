@@ -346,6 +346,17 @@ describe('translateSpec: env', () => {
     expect(JSON.stringify(plan)).not.toContain('host.docker.internal');
   });
 
+  it('points the mailbox URL at the host even when composed for the Docker lockdown forwarder', () => {
+    const spec = realisticSpec();
+    spec.containers[0].contributedEnv = {
+      ...spec.containers[0].contributedEnv,
+      NANOCLAW_MAILBOX_URL: 'http://nanoclaw-mailbox-abcd1234:18770/v1/mailbox',
+    };
+    const plan = translateSpec(spec, opts());
+    expect(plan.contributedEnv.NANOCLAW_MAILBOX_URL).toBe('http://host.openshell.internal:18770/v1/mailbox');
+    expect(JSON.stringify(plan.policy)).toContain('18770');
+  });
+
   it('carries OpenShell-reserved keys under an alias and exports them back before exec', () => {
     const spec = realisticSpec();
     spec.containers[0].env.CURL_CA_BUNDLE = '/etc/ssl/certs/ca-certificates.crt';

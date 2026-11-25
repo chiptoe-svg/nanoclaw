@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { enabled, start, warn } = vi.hoisted(() => ({ enabled: vi.fn(), start: vi.fn(), warn: vi.fn() }));
-vi.mock('./spawn.js', () => ({ remoteMailboxEnabled: enabled, warnIfRelayMustForwardMailbox: warn }));
+const { enabled, start, forward } = vi.hoisted(() => ({ enabled: vi.fn(), start: vi.fn(), forward: vi.fn() }));
+vi.mock('./spawn.js', () => ({ remoteMailboxEnabled: enabled }));
 vi.mock('./service.js', () => ({ startRemoteMailboxService: start }));
+vi.mock('./forwarder.js', () => ({ ensureMailboxForwarder: forward }));
 vi.mock('../../log.js', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
 import { getHostShutdownCallbacks } from '../../host-lifecycle.js';
@@ -14,24 +15,40 @@ import {
   stopRemoteMailboxService,
 } from './startup.js';
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  forward.mockReset();
+});
 
 describe('startRemoteMailboxServiceIfEnabled', () => {
   it('does not start the service when no group opted in', async () => {
     enabled.mockReturnValue(false);
     expect(await startRemoteMailboxServiceIfEnabled(18770)).toBeUndefined();
     expect(start).not.toHaveBeenCalled();
-    expect(warn).not.toHaveBeenCalled();
+    // A leftover forwarder is cleaned up.
+    expect(forward).toHaveBeenCalledWith(expect.objectContaining({ enabled: false, port: 18770 }));
   });
 
-  it('starts it on the configured port, logs the port, and checks the relay', async () => {
+  it('starts it on the configured port, logs the port, then ensures the forwarder', async () => {
     enabled.mockReturnValue(true);
     const service = { port: 18770, stop: vi.fn() };
     start.mockResolvedValue(service);
     expect(await startRemoteMailboxServiceIfEnabled(18770)).toBe(service);
     expect(start).toHaveBeenCalledWith({ port: 18770 });
     expect(log.info).toHaveBeenCalledWith(expect.stringContaining('Remote mailbox'), { port: 18770 });
-    expect(warn).toHaveBeenCalled();
+    expect(forward).toHaveBeenCalledWith(expect.objectContaining({ enabled: true, port: 18770 }));
+    expect(start.mock.invocationCallOrder[0]).toBeLessThan(forward.mock.invocationCallOrder[0]);
+  });
+
+  it('stops the service and fails when the forwarder cannot be established', async () => {
+    enabled.mockReturnValue(true);
+    const service = { port: 18770, stop: vi.fn(async () => {}) };
+    start.mockResolvedValue(service);
+    forward.mockImplementation(() => {
+      throw new Error('forwarder down');
+    });
+    await expect(startRemoteMailboxServiceIfEnabled(18770)).rejects.toThrow('forwarder down');
+    expect(service.stop).toHaveBeenCalledOnce();
   });
 });
 

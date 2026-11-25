@@ -17,19 +17,19 @@
  * sweep and typing refresh see it without the session directory being
  * mounted. See `prepareRemoteHeartbeat`.
  *
- * Egress lockdown: under NANOCLAW_EGRESS_LOCKDOWN, `host.docker.internal` is
- * the gateway relay container, which forwards only the gateway port. The relay
- * (operator-local, outside this repo) must also forward the mailbox port, or
- * opted-in containers cannot reach the service. `warnIfRelayMustForwardMailbox`
- * says so at startup.
+ * Egress lockdown: under NANOCLAW_EGRESS_LOCKDOWN, a container on the locked
+ * network cannot reach the host; `host.docker.internal` there is the credential
+ * gateway. Such containers reach the service through the install's mailbox
+ * forwarder (forwarder.ts) at its network alias instead.
  */
 import fs from 'fs';
 import path from 'path';
 
-import { DATA_DIR, EGRESS_LOCKDOWN } from '../../config.js';
+import { DATA_DIR, INSTALL_SLUG } from '../../config.js';
 import { log } from '../../log.js';
 import { sessionMailboxDir } from '../sqlite/paths.js';
 import { MAILBOX_PORT, REMOTE_MAILBOX_GROUPS } from './config.js';
+import { mailboxForwarderName } from './forwarder.js';
 import { isValidSessionKey, type RemoteSessionKey } from './ids.js';
 import { issueMailboxToken, revokeMailboxToken, tokenFileExists, withdrawMailboxToken } from './tokens.js';
 
@@ -105,23 +105,33 @@ export function prepareRemoteHeartbeat(key: RemoteSessionKey): string {
   return file;
 }
 
+/** Host name a container reaches the service by: the forwarder's alias on the locked network, else the host. */
+export function mailboxHost(viaForwarder: boolean): string {
+  return viaForwarder ? mailboxForwarderName(INSTALL_SLUG) : 'host.docker.internal';
+}
+
 /**
  * Issue a fresh token for this spawn and return the runner's env. Goes on the
  * contributed env lane: the token is a credential-NAMED variable, which the
  * composed lane refuses by design; the lane still refuses real credential
  * values, and this is a spawn-scoped bearer the host revokes at exit.
+ *
+ * `viaForwarder`: the container lands on the egress-lockdown network, so it
+ * goes through the mailbox forwarder.
  */
-export function issueRemoteMailboxEnv(key: RemoteSessionKey): Record<string, string> {
+export function issueRemoteMailboxEnv(key: RemoteSessionKey, viaForwarder = false): Record<string, string> {
   const token = issueMailboxToken(key);
+  const host = mailboxHost(viaForwarder);
+  const noProxy = viaForwarder ? `host.docker.internal,${host}` : host;
   return {
-    NANOCLAW_MAILBOX_URL: `http://host.docker.internal:${MAILBOX_PORT}/v1/mailbox`,
+    NANOCLAW_MAILBOX_URL: `http://${host}:${MAILBOX_PORT}/v1/mailbox`,
     NANOCLAW_MAILBOX_TOKEN: token,
     NANOCLAW_MAILBOX_SESSION: `${key.agentGroupId}/${key.sessionId}`,
     // Bun's fetch honours HTTP(S)_PROXY, so without this the mailbox calls
     // (and their bearer token) ride the credential gateway's proxy. No gateway
     // sets NO_PROXY today; this lane wins if one ever does.
-    NO_PROXY: 'host.docker.internal',
-    no_proxy: 'host.docker.internal',
+    NO_PROXY: noProxy,
+    no_proxy: noProxy,
   };
 }
 
@@ -140,15 +150,6 @@ export function releaseRemoteMailbox(key: RemoteSessionKey): void {
   } catch (err) {
     log.warn('Remote mailbox release failed', { ...key, err });
   }
-}
-
-export function warnIfRelayMustForwardMailbox(): void {
-  if (!remoteMailboxEnabled() || !EGRESS_LOCKDOWN) return;
-  log.warn(
-    `Egress lockdown is on and the remote mailbox is enabled: host.docker.internal is the gateway relay, ` +
-      `which must also forward port ${MAILBOX_PORT} to the host or opted-in containers cannot reach their mailbox`,
-    { port: MAILBOX_PORT, groups: REMOTE_MAILBOX_GROUPS },
-  );
 }
 
 /**

@@ -3,11 +3,18 @@
  * driver's `ensureReady()` — host startup calls it before adopting running
  * containers, which may already be retrying against the port. Once listening
  * it registers its own graceful-shutdown callback; nothing registers at import.
+ *
+ * Under egress lockdown the service is reachable from the locked network only
+ * through the mailbox forwarder (forwarder.ts), established right after the
+ * service listens. If it cannot be, the service is stopped and startup fails:
+ * listed groups must never be left unable to reach their mailbox.
  */
+import { CONTAINER_IMAGE, EGRESS_LOCKDOWN, EGRESS_NETWORK, INSTALL_SLUG } from '../../config.js';
 import { onHostShutdown } from '../../host-lifecycle.js';
 import { log } from '../../log.js';
 import { MAILBOX_PORT } from './config.js';
-import { remoteMailboxEnabled, warnIfRelayMustForwardMailbox } from './spawn.js';
+import { ensureMailboxForwarder } from './forwarder.js';
+import { remoteMailboxEnabled } from './spawn.js';
 import { startRemoteMailboxService } from './service.js';
 import type { RemoteMailboxService } from './service.js';
 
@@ -18,10 +25,25 @@ let shutdownRegistered = false;
 
 /** Start the service only when at least one agent group opted in; otherwise do nothing. */
 export async function startRemoteMailboxServiceIfEnabled(port: number): Promise<RemoteMailboxService | undefined> {
-  if (!remoteMailboxEnabled()) return undefined;
+  const forwarder = {
+    installSlug: INSTALL_SLUG,
+    port,
+    image: CONTAINER_IMAGE,
+    network: EGRESS_NETWORK,
+    lockdown: EGRESS_LOCKDOWN,
+  };
+  if (!remoteMailboxEnabled()) {
+    ensureMailboxForwarder({ ...forwarder, enabled: false });
+    return undefined;
+  }
   const service = await startRemoteMailboxService({ port });
   log.info('Remote mailbox service listening', { port: service.port });
-  warnIfRelayMustForwardMailbox();
+  try {
+    ensureMailboxForwarder({ ...forwarder, enabled: true });
+  } catch (err) {
+    await service.stop().catch(() => {});
+    throw err;
+  }
   return service;
 }
 

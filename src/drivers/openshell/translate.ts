@@ -28,7 +28,8 @@
  *   alias and the prelude exports them back (`OPENSHELL_RESERVED_ENV`).
  * - Egress: OpenShell is deny-by-default and always blocks a fixed set of
  *   ports (10255 among them, which is OneCLI's proxy). `host.docker.internal`
- *   becomes `host.openshell.internal` in every env value, and the proxy URLs
+ *   becomes `host.openshell.internal` in every env value (and the mailbox
+ *   URL's host, whatever it is, becomes `host.openshell.internal`), and the proxy URLs
  *   are re-pointed at a host-side loopback forwarder the driver runs. The
  *   policy admits exactly the host ports the rewritten env names.
  * - Credentials from OpenShell providers (`spec.credentialProviders`): the
@@ -269,6 +270,22 @@ function rewriteHost(value: string): string {
   return value.replaceAll(DOCKER_HOST, OPENSHELL_HOST);
 }
 
+/**
+ * The remote mailbox lives on the host whatever name the URL was composed
+ * with: under Docker egress lockdown it names the mailbox forwarder's alias on
+ * the locked network, which a sandbox never joins.
+ */
+function rewriteMailboxUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return value;
+  }
+  url.hostname = OPENSHELL_HOST;
+  return url.href;
+}
+
 /** Proxy URL → forwarder; returns the original port, or undefined when not ours. */
 function rewriteProxy(value: string, forwardPort: number): { value: string; targetPort?: number } {
   let url: URL;
@@ -458,6 +475,7 @@ export function translateSpec(spec: SessionSpec, opts: TranslateOptions): Sandbo
           targetPort = proxied.targetPort;
         }
       }
+      if (key === 'NANOCLAW_MAILBOX_URL') value = rewriteMailboxUrl(value);
       value = rewriteHost(value);
       if (Buffer.byteLength(value) > MAX_ENV_VALUE_BYTES || value.includes('\n')) {
         throw specInvalid(`env '${key}' exceeds the sandbox env limits (8 KiB, single line)`);

@@ -11,5 +11,5 @@ export {
   releaseRemoteMailbox,
   remoteMailboxEnabled,
   remoteWorkspaceDir,
-  warnIfRelayMustForwardMailbox,
 } from './spawn.js';
+export { ensureMailboxForwarder, mailboxForwarderName } from './forwarder.js';

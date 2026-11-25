@@ -12,11 +12,17 @@ over HTTP through a host service on `127.0.0.1` (port 18770 by default), with a
 bearer token issued per spawn and revoked when the container ends. Everything
 else about the container is unchanged.
 
+Tested on macOS with Docker Desktop. On Linux a container cannot reach the
+host's `127.0.0.1`, so the host service is out of reach there.
+
 How it fits together:
 
 - **Host service** (`src/mailbox/remote/service.ts`) runs the runner's mailbox
   operations against the session's SQLite files on the host. It listens only
   when at least one group is listed.
+- **Mailbox forwarder** (`src/mailbox/remote/forwarder.ts`), under egress
+  lockdown only: a container on the locked-down network that forwards the
+  mailbox port, and nothing else, to the host.
 - **Session driver** `remote-mailbox` (`src/mailbox/remote/driver.ts`) wraps the
   install's `docker` driver. For a listed group it swaps the `/workspace` mount
   for an empty per-session scratch directory, adds the mailbox URL, token and
@@ -53,6 +59,8 @@ payload/src/mailbox/remote/drift.test.ts -> src/mailbox/remote/drift.test.ts
 payload/src/mailbox/remote/driver.test.ts -> src/mailbox/remote/driver.test.ts
 payload/src/mailbox/remote/driver.ts -> src/mailbox/remote/driver.ts
 payload/src/mailbox/remote/files.ts -> src/mailbox/remote/files.ts
+payload/src/mailbox/remote/forwarder.test.ts -> src/mailbox/remote/forwarder.test.ts
+payload/src/mailbox/remote/forwarder.ts -> src/mailbox/remote/forwarder.ts
 payload/src/mailbox/remote/ids.ts -> src/mailbox/remote/ids.ts
 payload/src/mailbox/remote/index.ts -> src/mailbox/remote/index.ts
 payload/src/mailbox/remote/operations.test.ts -> src/mailbox/remote/operations.test.ts
@@ -135,12 +143,10 @@ If `.env` already sets either key to something else, update it by hand.
 
 ### 7. Egress lockdown
 
-With `NANOCLAW_EGRESS_LOCKDOWN=true`, containers reach the host only through
-the gateway relay container that answers as `host.docker.internal`. Tell the user:
-
-```nc:operator
-The gateway relay must also forward the mailbox port (18770, or NANOCLAW_MAILBOX_PORT) to the host, or listed groups cannot reach their mailbox. The host logs a warning at startup while lockdown and the remote mailbox are both on. Without egress lockdown there is nothing to do.
-```
+Nothing to do. With `NANOCLAW_EGRESS_LOCKDOWN=true` the host also runs one
+small forwarder container, `nanoclaw-mailbox-<slug>`, on the locked-down
+network. It forwards only the mailbox port to the host, and listed groups
+reach their mailbox through it.
 
 ### 8. Restart
 
@@ -154,7 +160,8 @@ on its next spawn; `ncl groups restart --id <group-id>` does it now.
 ## Verify
 
 `logs/nanoclaw.log` shows `Session runtime driver selected` with
-`remote-mailbox(docker)` and `Remote mailbox service listening`. After a listed
+`remote-mailbox(docker)` and `Remote mailbox service listening`, plus
+`Remote mailbox forwarder up` under egress lockdown. After a listed
 group's next message, its container has no mount of
 `data/v2-sessions/<group>/<session>` (`docker inspect <container>` shows
 `.remote-workspace/<session>` at `/workspace`), and the session's heartbeat
@@ -166,8 +173,12 @@ keeps updating.
   set `NANOCLAW_RUNTIME_DRIVER=remote-mailbox` in `.env` and restart.
 - **Host refuses to start with `EADDRINUSE`**: another process holds the
   mailbox port. Set `NANOCLAW_MAILBOX_PORT` to a free port and restart.
-- **Agent never answers, runner logs mailbox connection errors**: under egress
-  lockdown the relay is not forwarding the mailbox port (step 7).
+- **Host refuses to start with `Remote mailbox under egress lockdown: ...`**:
+  the forwarder container could not be set up; the message says why (Docker
+  not running, agent image missing). Fix that and restart.
+- **Agent never answers, runner logs mailbox connection errors**: a container
+  started before the forwarder existed still has the old mailbox address.
+  Restart the group with `ncl groups restart --id <group-id>`.
 - **`drift.test.ts` fails after an update**: upstream changed the runner's
   SQLite mailbox. Port the change into `src/mailbox/remote/operations.ts`, run
   `operations.test.ts`, then update the fingerprint.

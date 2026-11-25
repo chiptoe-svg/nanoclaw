@@ -29,7 +29,6 @@ vi.mock('./config.js', async () => {
 });
 vi.mock('../../log.js', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
-import { log } from '../../log.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -44,10 +43,11 @@ import {
   remoteHeartbeatFile,
   sessionHeartbeatPath,
   remoteMailboxEnabled,
-  warnIfRelayMustForwardMailbox,
   withdrawRemoteMailboxEnv,
 } from './spawn.js';
 import { verifyMailboxToken } from './tokens.js';
+import { INSTALL_SLUG } from '../../config.js';
+import { mailboxForwarderName } from './forwarder.js';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -67,18 +67,27 @@ describe('remote mailbox opt-in', () => {
     expect(isRemoteMailboxGroup('ag-1')).toBe(true);
     expect(isRemoteMailboxGroup('ag-2')).toBe(false);
   });
+});
 
-  it('warns about the relay only when enabled under egress lockdown', () => {
-    cfg.groups = ['ag-1'];
-    warnIfRelayMustForwardMailbox();
-    expect(log.warn).not.toHaveBeenCalled();
-    cfg.lockdown = true;
-    warnIfRelayMustForwardMailbox();
-    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('18770'), expect.anything());
-    vi.clearAllMocks();
-    cfg.groups = [];
-    warnIfRelayMustForwardMailbox();
-    expect(log.warn).not.toHaveBeenCalled();
+describe('mailbox URL', () => {
+  const key = { agentGroupId: 'ag-url', sessionId: 'sess-url' };
+
+  beforeEach(() => fs.rmSync(cfg.dataDir, { recursive: true, force: true }));
+
+  it('points at host.docker.internal when the container is not on the locked network', () => {
+    const env = issueRemoteMailboxEnv(key);
+    expect(env.NANOCLAW_MAILBOX_URL).toBe('http://host.docker.internal:18770/v1/mailbox');
+    expect(env.NO_PROXY).toBe('host.docker.internal');
+    expect(env.no_proxy).toBe('host.docker.internal');
+  });
+
+  it('points at the install forwarder alias on the locked network, exempt from the proxy', () => {
+    const alias = mailboxForwarderName(INSTALL_SLUG);
+    expect(alias).toBe(`nanoclaw-mailbox-${INSTALL_SLUG}`);
+    const env = issueRemoteMailboxEnv(key, true);
+    expect(env.NANOCLAW_MAILBOX_URL).toBe(`http://${alias}:18770/v1/mailbox`);
+    expect(env.NO_PROXY).toBe(`host.docker.internal,${alias}`);
+    expect(env.no_proxy).toBe(env.NO_PROXY);
   });
 });
 

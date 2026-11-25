@@ -38,7 +38,12 @@
    rm -rf data/mailbox-tokens data/v2-sessions/*/.remote-workspace
    ```
 
-6. If the egress-lockdown relay was set to forward the mailbox port, remove
-   that forward.
+6. Remove the mailbox forwarder container, if egress lockdown created one.
+   It is named `nanoclaw-mailbox-<slug>`, where `<slug>` is the suffix of this
+   copy's agent image `nanoclaw-agent-v2-<slug>`:
+
+   ```bash
+   docker rm -f nanoclaw-mailbox-<slug>
+   ```
 
 7. Rebuild and restart: `pnpm run build && bash setup/lib/restart.sh`.

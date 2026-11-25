@@ -16,12 +16,20 @@ const fake = vi.hoisted(() => ({
   stops: [] as string[],
   listed: [] as unknown[],
   driver: null as unknown,
+  lockdown: false,
 }));
 
 vi.mock('../../config.js', async () => {
   const actual = await vi.importActual<typeof import('../../config.js')>('../../config.js');
   const root = `/tmp/nanoclaw-test-remote-mailbox-driver-${process.pid}`;
-  return { ...actual, DATA_DIR: `${root}/data`, GROUPS_DIR: `${root}/groups` };
+  return {
+    ...actual,
+    DATA_DIR: `${root}/data`,
+    GROUPS_DIR: `${root}/groups`,
+    get EGRESS_LOCKDOWN() {
+      return fake.lockdown;
+    },
+  };
 });
 vi.mock('./config.js', async () => {
   const actual = await vi.importActual<typeof import('./config.js')>('./config.js');
@@ -62,6 +70,8 @@ import {
 import { log } from '../../log.js';
 import { issueRemoteMailboxEnv, remoteHeartbeatFile, sessionHeartbeatPath } from './spawn.js';
 import { verifyMailboxToken } from './tokens.js';
+import { mailboxForwarderName } from './forwarder.js';
+import { fixtureSpec } from '../../drivers/spec-fixture.js';
 
 const CAPS: DriverCapabilities = {
   isolationTiers: ['container'],
@@ -131,6 +141,7 @@ beforeEach(async () => {
   fake.specs = [];
   fake.stops = [];
   fake.listed = [];
+  fake.lockdown = false;
   fake.driver = withSessionEvents(withRemoteMailbox(inner));
   resetGatewayProvider({
     kind: 'fixture',
@@ -247,6 +258,38 @@ describe('spawn through the real container-runner', () => {
     fake.driver = withSessionEvents(withRemoteMailbox(refusing));
     expect(await wakeContainer(sessionOf('ag-remote'))).toBe(false);
     expect(fs.existsSync(tokenFile('ag-remote'))).toBe(false);
+  });
+});
+
+describe('mailbox host under egress lockdown', () => {
+  const capture: SessionDriver = {
+    ...inner,
+    async prepare(spec) {
+      fake.specs.push(spec);
+      return handleFor(spec.key);
+    },
+  };
+  const urlFor = async (networkAccess: SessionSpec['networkAccess']) => {
+    await withRemoteMailbox(capture).prepare(
+      fixtureSpec({ key: { installSlug: INSTALL_SLUG, ...remoteKey }, networkAccess }),
+    );
+    return allEnv(lastSpec());
+  };
+  const gateway = { endpoint: 'host.docker.internal', target: { kind: 'runtime' as const, identity: 'gw' } };
+
+  it('a container on the locked network reaches the mailbox through the forwarder alias', async () => {
+    fake.lockdown = true;
+    const env = await urlFor(gateway);
+    const alias = mailboxForwarderName(INSTALL_SLUG);
+    expect(env.NANOCLAW_MAILBOX_URL).toBe(`http://${alias}:18999/v1/mailbox`);
+    expect(env.NO_PROXY).toBe(`host.docker.internal,${alias}`);
+  });
+
+  it('off the locked network (no lockdown, or a session-container target) it reaches the host directly', async () => {
+    expect((await urlFor(gateway)).NANOCLAW_MAILBOX_URL).toBe('http://host.docker.internal:18999/v1/mailbox');
+    fake.lockdown = true;
+    const sidecar = { endpoint: 'proxy', target: { kind: 'session-container' as const, role: 'proxy' } };
+    expect((await urlFor(sidecar)).NANOCLAW_MAILBOX_URL).toBe('http://host.docker.internal:18999/v1/mailbox');
   });
 });
 

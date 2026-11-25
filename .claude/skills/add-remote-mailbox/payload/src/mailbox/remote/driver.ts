@@ -23,9 +23,12 @@
  *
  * Every other group: the spec and handles pass through untouched.
  *
- * Lifecycle: the service starts in `ensureReady()` and registers its own
- * shutdown callback once it is listening (startup.ts) — nothing registers at
- * import. Listing groups without selecting this driver is reported at import,
+ * Egress lockdown: an agent that joins the locked network gets the mailbox
+ * forwarder's alias as its mailbox host (forwarder.ts).
+ *
+ * Lifecycle: the service (and under lockdown the forwarder) starts in
+ * `ensureReady()` and registers its own shutdown callback once it is
+ * listening (startup.ts) — nothing registers at import. Listing groups without selecting this driver is reported at import,
  * since those groups would otherwise silently keep the mounted session
  * directory.
  */
@@ -41,6 +44,7 @@ import {
   type SessionSpec,
   type SessionStatus,
 } from '../../drivers/types.js';
+import { EGRESS_LOCKDOWN } from '../../config.js';
 import { readEnvFile } from '../../env.js';
 import { log } from '../../log.js';
 import { REMOTE_MAILBOX_GROUPS } from './config.js';
@@ -144,7 +148,10 @@ export function withRemoteMailbox(inner: SessionDriver): SessionDriver {
     prepare: async (spec) => {
       if (!isRemoteMailboxGroup(spec.key.agentGroupId)) return inner.prepare(spec);
       const key = remoteKey(spec.key);
-      const mailboxEnv = issueRemoteMailboxEnv(key);
+      // Same rule as the docker driver's network choice: under lockdown every
+      // agent not routed to a session container joins the locked network.
+      const viaForwarder = EGRESS_LOCKDOWN && spec.networkAccess.target.kind !== 'session-container';
+      const mailboxEnv = issueRemoteMailboxEnv(key, viaForwarder);
       try {
         const rewritten = rewriteRemoteMailboxSpec(
           spec,
