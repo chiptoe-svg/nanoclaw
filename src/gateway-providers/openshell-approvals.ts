@@ -418,15 +418,12 @@ export class OpenShellNetworkApprovals {
       expiresAt: new Date(now + (this.#deps.approvalWindowMs ?? APPROVAL_WINDOW_MS)).toISOString(),
       destination: { host: event.host },
       title: 'Allow network access?',
+      // Plain text, no displayFields: a request with displayFields needs a registered
+      // card renderer, and a channel without one (Telegram today) fails it closed.
       question:
-        `An agent's sandbox tried to connect to ${endpoint}, which its network policy does not allow, and was blocked. ` +
-        "Approving adds this host and port to the agent's policy for good (every session, also after restarts) " +
-        'until an operator removes it.',
-      displayFields: [
-        { label: 'Agent', type: 'text', value: agent },
-        { label: 'Destination', type: 'text', value: endpoint },
-        { label: 'Program', type: 'text', value: event.binary },
-      ],
+        `${agent} tried to connect to ${endpoint} (program ${event.binary}). Its network policy does not allow that, ` +
+        "so it was blocked. Approving adds this host and port to the agent's policy for good (every session, " +
+        'also after restarts) until an operator removes it.',
       audit: { source: 'openshell', sandbox: entry.sandbox, host: event.host, port: event.port },
     };
   }

@@ -171,18 +171,17 @@ describe('OpenShellNetworkApprovals', () => {
       sessionId: 'sess-1',
       destination: { host: 'example.com' },
       title: 'Allow network access?',
-      displayFields: [
-        { label: 'Agent', type: 'text', value: 'Lab' },
-        { label: 'Destination', type: 'text', value: 'example.com:443' },
-        { label: 'Program', type: 'text', value: '/usr/bin/curl' },
-      ],
     });
-    expect(requests[0].question).toMatch(/example\.com:443.*for good/);
+    // No displayFields: those need a channel card renderer, which Telegram lacks (fails closed).
+    expect(requests[0].displayFields).toBeUndefined();
+    expect(requests[0].question).toMatch(
+      /^Lab tried to connect to example\.com:443 \(program \/usr\/bin\/curl\).*for good/,
+    );
     expect(Date.parse(requests[0].expiresAt!) - Date.parse(requests[0].createdAt)).toBe(30 * 60_000);
     // Core's renderer accepts it as is.
     const card = gatewayApprovalPresentation(requests[0]);
     expect(card.title).toBe('Allow network access?');
-    expect(card.question).toContain('*Destination:* example.com:443');
+    expect(card.question).toContain('example.com:443');
 
     // Applied live to every running sandbox of the group, not to other groups.
     expect(cli.calls).toEqual(
@@ -220,7 +219,10 @@ describe('OpenShellNetworkApprovals', () => {
     tail('nc-x-2').emit(deny(nowSec() + 3, 'example.com', 443, '/usr/local/bin/bun'));
     tail('nc-x-1').emit(deny(nowSec() + 4, 'example.com', 8443));
     await settle();
-    expect(requests.map((r) => r.displayFields![1].value)).toEqual(['example.com:443', 'example.com:8443']);
+    expect(requests.map((r) => /to connect to (\S+)/.exec(r.question)![1])).toEqual([
+      'example.com:443',
+      'example.com:8443',
+    ]);
     resolvers[0]('approve');
     await settle();
     const approvals = notes.filter((n) => /approved access to example\.com:443/.test(n.text));
