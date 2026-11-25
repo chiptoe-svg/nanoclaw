@@ -7,11 +7,11 @@ related upstream question is nanocoai/nanoclaw#4543.
 
 ## What was built
 
-| Piece | Where | Purpose |
-|---|---|---|
-| Remote agent mailbox (host) | `src/mailbox/remote/` | Serves the runner's `MailboxOperations` over HTTP on `127.0.0.1:18770`, against the unchanged SQLite session DBs. Per-session bearer tokens (sha256 on disk in `data/mailbox-tokens/`), per-session serialization, idempotent `writeMessageOut`, symlink-proof inbox/outbox file ops. |
-| Remote agent mailbox (runner) | `container/agent-runner/src/mailbox/remote/` | Synchronous calls via a worker thread + `Atomics.wait` (request ids, timeouts, retry), inbox sync, outbox upload, heartbeat. Session comes from `NANOCLAW_MAILBOX_SESSION` when there is no context file. |
-| OpenShell session driver | `src/drivers/openshell-driver.ts`, `src/drivers/openshell/{translate,composite,forwarder}.ts` | Drives the `openshell` CLI. Translates a NanoClaw spec to a sandbox (mounts, env, policy, entrypoint prelude), adopts sandboxes after a host restart, captures runner output. A composite driver routes only opted-in groups to OpenShell. |
+| Piece                         | Where                                                                                         | Purpose                                                                                                                                                                                                                                                                               |
+| ----------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Remote agent mailbox (host)   | `src/mailbox/remote/`                                                                         | Serves the runner's `MailboxOperations` over HTTP on `127.0.0.1:18770`, against the unchanged SQLite session DBs. Per-session bearer tokens (sha256 on disk in `data/mailbox-tokens/`), per-session serialization, idempotent `writeMessageOut`, symlink-proof inbox/outbox file ops. |
+| Remote agent mailbox (runner) | `container/agent-runner/src/mailbox/remote/`                                                  | Synchronous calls via a worker thread + `Atomics.wait` (request ids, timeouts, retry), inbox sync, outbox upload, heartbeat. Session comes from `NANOCLAW_MAILBOX_SESSION` when there is no context file.                                                                             |
+| OpenShell session driver      | `src/drivers/openshell-driver.ts`, `src/drivers/openshell/{translate,composite,forwarder}.ts` | Drives the `openshell` CLI. Translates a NanoClaw spec to a sandbox (mounts, env, policy, entrypoint prelude), adopts sandboxes after a host restart, captures runner output. A composite driver routes only opted-in groups to OpenShell.                                            |
 
 Opt-in (`.env`), both required for an OpenShell group:
 
@@ -19,6 +19,7 @@ Opt-in (`.env`), both required for an OpenShell group:
 NANOCLAW_REMOTE_MAILBOX_GROUPS=<agentGroupId,...>
 NANOCLAW_OPENSHELL_GROUPS=<agentGroupId,...>
 # optional: NANOCLAW_MAILBOX_PORT=18770  NANOCLAW_OPENSHELL_FORWARD_PORT=18755
+# optional: NANOCLAW_OPENSHELL_IDLE_MINUTES=120   (keep idle VMs alive longer; see below)
 ```
 
 Rollback: remove those lines and restart. A group switched Docker→OpenShell
@@ -114,7 +115,10 @@ keeps an already-running Docker container until it exits.
 - **Reply after a host restart** took ~28 s: the first mailbox call hung on a
   kept-alive connection that went dead behind OpenShell's proxy. Fixed
   (`Connection: close`, 10 s call timeout): ~8.5 s now; the call that was in
-  flight at the moment of the restart still waits out one timeout.
+  flight at the moment of the restart still waited out one timeout. Now
+  `getPendingMessages` (read-only; rows stay pending until marked) times out
+  after 3 s and the heartbeat after 3 s, while writes and file transfer keep
+  10 s (so a slow write is never abandoned and replayed).
 - **Memory**: one running VM ≈ 1.4 GB host RSS (relevant to keeping idle VMs
   alive).
 - **Soak test** started 2026-11-24 17:27: hourly task `vm-soak-5935` on the lab
@@ -295,25 +299,47 @@ logged-in machine prints `sk-ant-oat…`). Run these from `~/nanoclaw-v2`:
   container skill describing the OpenShell credentials.
 - The real setup-token has not been tested yet: only the dummy-token echo
   check above has.
+## Policy lint and idle keep-alive (small prototype changes)
+
+- **Policy lint**: after writing `policy.yaml`, `prepare()` runs
+  `openshell policy lint <file>` (15 s timeout). A rejection fails the spawn
+  as a non-retryable `spec-invalid` carrying the lint output (staging removed).
+  A CLI without the subcommand (< 0.1.10) is skipped with one warning.
+  Checked against a real generated policy on 0.1.10: "Policy is valid
+  (offline)"; a malformed file exits 1 with the field path.
+- **What ends an idle session today** (nothing in the runner does): the host
+  sweep's absolute ceiling in `src/reconcile-session.ts`
+  (`decideStuckAction`): heartbeat age > `max(NANOCLAW_ABSOLUTE_CEILING_MS,
+default 30 min, declared Bash timeout)` kills the container ("Stopping idle
+  container past absolute ceiling"). The runner only touches the heartbeat on
+  SDK events, not while idle polling, so an idle session ends ~30 min after
+  its last turn. The runner has no idle exit (`poll-loop.ts` exits only on a
+  mailbox-failure streak). Claim-stuck (60 s) concerns claimed messages only.
+- **Keep-alive**: `NANOCLAW_OPENSHELL_IDLE_MINUTES` (1..1440, default off)
+  raises that ceiling, never lowers it, for groups in
+  `NANOCLAW_OPENSHELL_GROUPS` only; Docker groups use the unchanged global
+  ceiling. Cost: one running VM is about 1.4 GB host RSS, per idle session,
+  for the whole window. It also delays the reaping of a genuinely hung VM
+  (without a claimed message) up to the same window.
 
 ## Performance (same prompt, lab agent)
 
-| | Docker | MicroVM |
-|---|---|---|
-| Warm reply | ~1.95 s | ~1.9 s |
-| Cold start | ~2.3 s | ~4.4-4.7 s |
-| Mailbox call (p50) | ~0.9 ms | ~1.7 ms |
+|                    | Docker  | MicroVM    |
+| ------------------ | ------- | ---------- |
+| Warm reply         | ~1.95 s | ~1.9 s     |
+| Cold start         | ~2.3 s  | ~4.4-4.7 s |
+| Mailbox call (p50) | ~0.9 ms | ~1.7 ms    |
 
 Cold-start breakdown in a VM (from message sent):
 
-| Span | Step | Cost |
-|---|---|---|
-| 0 → 1.7 s | spawn, VM boot, supervisor, policy, isolation | ~1.7 s, VM-specific |
-| 1.7 → 2.1 s | Bun compiles the runner's ~100 TS files over virtiofs | ~0.4 s, mostly VM-specific |
-| 2.1 → 2.2 s | runner setup, session resume | 0.1 s |
-| 2.2 → 3.05 s | Claude session start | 0.8 s, same on Docker |
-| 3.05 → 4.0 s | model | 0.95 s, same on Docker |
-| 4.0 → 4.6 s | host delivery polling | 0.6 s, same on Docker |
+| Span         | Step                                                  | Cost                       |
+| ------------ | ----------------------------------------------------- | -------------------------- |
+| 0 → 1.7 s    | spawn, VM boot, supervisor, policy, isolation         | ~1.7 s, VM-specific        |
+| 1.7 → 2.1 s  | Bun compiles the runner's ~100 TS files over virtiofs | ~0.4 s, mostly VM-specific |
+| 2.1 → 2.2 s  | runner setup, session resume                          | 0.1 s                      |
+| 2.2 → 3.05 s | Claude session start                                  | 0.8 s, same on Docker      |
+| 3.05 → 4.0 s | model                                                 | 0.95 s, same on Docker     |
+| 4.0 → 4.6 s  | host delivery polling                                 | 0.6 s, same on Docker      |
 
 Not causes: virtiofs file reads in general, Bun startup itself, first launch
 of the Claude binary (126 ms vs 5 ms).
@@ -370,14 +396,14 @@ Prefer the MicroVM driver on macOS, or the Docker driver on a Linux host.
 2. **Approvals**: bridge OpenShell pending rules to NanoClaw approval cards
    (rule-level; OpenShell has no per-request hold, #4406), and persist approved
    rules into the group's policy so new sandboxes don't re-ask.
-3. **Keep idle VMs alive longer** (removes the ~2 s cold-start cost for active
-   agents; costs memory per idle VM).
+3. **Keep idle VMs alive longer**: opt-in knob done (`NANOCLAW_OPENSHELL_IDLE_MINUTES`);
+   still open: per-group setting, a memory-aware cap on concurrent idle VMs.
 4. **Ship the runner pre-bundled in the image** (saves most of the 0.4 s and
    one share).
 5. **Move the driver from the `openshell` CLI to `@ai-openshell/sdk`** once it
    has a few releases (typed calls, mTLS, `WatchSandbox` stream → event-driven
-   status instead of 3-5 s polling for exit detection), and run
-   `openshell policy lint` (or its API) on every generated policy.
+   status instead of 3-5 s polling for exit detection),
+   (policy lint on every generated policy is done via the CLI).
 6. **Read-only overlays** (`CLAUDE.md`, `container.json`, `plugins/`) become
    writable through their parent share in a VM; restore protection.
 7. **VM sizing** is gateway-wide (`vcpus`, `mem_mib`); per-session limits are

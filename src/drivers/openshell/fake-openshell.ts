@@ -21,6 +21,8 @@ export class FakeOpenShell implements OpenShellCli {
   readonly boxes = new Map<string, FakeSandbox>();
   /** Next call whose joined argv matches throws this message (consumed once). */
   failNext: Array<{ match: RegExp; message: string }> = [];
+  /** Simulates a CLI older than 0.1.10 (no `policy lint`). */
+  lintUnsupported = false;
   statusOutput = 'Server Status\n  Status: Connected\n';
 
   async run(args: string[], opts?: { timeoutMs?: number; env?: Record<string, string> }): Promise<string> {
@@ -32,6 +34,10 @@ export class FakeOpenShell implements OpenShellCli {
       throw new Error(fail.message);
     }
     if (args[0] === 'status') return this.statusOutput;
+    if (args[0] === 'policy' && args[1] === 'lint') {
+      if (this.lintUnsupported) throw new Error("error: unrecognized subcommand 'lint'");
+      return 'policy ok';
+    }
     const [, verb] = args;
     if (verb === 'get') {
       const box = this.boxes.get(args[2]);

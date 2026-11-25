@@ -42,6 +42,7 @@ import {
 import {
   LABELS,
   asFailureError,
+  specInvalid,
   validateSpec,
   type DriverCapabilities,
   type MountPolicy,
@@ -68,6 +69,9 @@ export interface OpenShellCli {
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const CREATE_TIMEOUT_MS = 240_000;
+const LINT_TIMEOUT_MS = 15_000;
+/** Old CLIs reject the unknown subcommand at argument parsing. */
+const LINT_MISSING = /unrecognized subcommand|unknown (sub)?command|invalid subcommand|unexpected argument 'lint'/i;
 const FORWARD_ANNOTATION = 'nanoclaw-forward';
 
 export function realOpenShellCli(bin = 'openshell'): OpenShellCli {
@@ -198,6 +202,7 @@ export class OpenShellSessionDriver implements SessionDriver {
   readonly #pollMs: number;
   readonly #watches = new Map<string, InstallWatch>();
   #forwarder: Promise<Forwarder> | null = null;
+  #lintUnsupported = false;
 
   constructor(private readonly opts: OpenShellDriverOptions) {
     this.#cli = opts.cli ?? realOpenShellCli();
@@ -303,8 +308,36 @@ export class OpenShellSessionDriver implements SessionDriver {
     for (const file of plan.staged) {
       fs.copyFileSync(file.source, path.join(stagingDir, 'files', file.stagedName));
     }
-    fs.writeFileSync(path.join(stagingDir, 'policy.yaml'), stringify(plan.policy), { mode: 0o600 });
+    const policyFile = path.join(stagingDir, 'policy.yaml');
+    fs.writeFileSync(policyFile, stringify(plan.policy), { mode: 0o600 });
+    try {
+      await this.#lintPolicy(policyFile);
+    } catch (err) {
+      fs.rmSync(stagingDir, { recursive: true, force: true });
+      throw err;
+    }
     return new OpenShellHandle(spec.key, name, this, plan);
+  }
+
+  /**
+   * `openshell policy lint` (0.1.10+) validates the generated policy offline.
+   * A rejection fails the spawn with the lint output; a CLI without the
+   * subcommand is skipped (warned once) so older gateways keep working.
+   */
+  async #lintPolicy(file: string): Promise<void> {
+    if (this.#lintUnsupported) return;
+    try {
+      await this.#cli.run(['policy', 'lint', file], { timeoutMs: LINT_TIMEOUT_MS });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (LINT_MISSING.test(msg)) {
+        this.#lintUnsupported = true;
+        log.warn('OpenShell CLI has no `policy lint`; generated policies are not pre-validated');
+        return;
+      }
+      if (/ETIMEDOUT|timed out|ENOENT|SIGTERM/i.test(msg)) throw normalizeOpenShellError(err);
+      throw specInvalid(`policy lint failed: ${msg.trim()}`);
+    }
   }
 
   async listSessions(installSlug: string): Promise<SessionSnapshot[]> {

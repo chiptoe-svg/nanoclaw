@@ -143,10 +143,30 @@ describe('prepare', () => {
     const handle = await driver.prepare(spec());
     expect(handle.name).toBe(N1);
     expect(N1).toMatch(/^nc-inst-[0-9a-f]{11}$/);
-    expect(cli.calls.map((c) => c.args[1])).toEqual(['get']);
+    expect(cli.calls.map((c) => c.args[1])).toEqual(['get', 'lint']);
+    const lint = cli.calls.find((c) => c.args[1] === 'lint')!.args;
+    expect(lint).toEqual(['policy', 'lint', path.join(staging(N1), 'policy.yaml')]);
     expect(fs.readFileSync(path.join(staging(N1), 'files', '0-onecli-gateway-ca.pem'), 'utf8')).toBe('CA');
     expect(fs.readFileSync(path.join(staging(N1), 'policy.yaml'), 'utf8')).toContain('host.openshell.internal');
     expect(await handle.status()).toEqual({ phase: 'ready' });
+  });
+
+  it('fails the spawn, non-retryably and with the lint output, when the policy does not lint', async () => {
+    cli.failNext.push({ match: /^policy lint/, message: 'Command failed\nerror: network_policies.x: bad host' });
+    const err = await driver.prepare(spec()).catch((e: unknown) => e);
+    expect(err).toMatchObject({ kind: 'spec-invalid', retryable: false });
+    expect((err as Error).message).toContain('bad host');
+    expect(fs.existsSync(staging(N1))).toBe(false);
+  });
+
+  it('skips lint with one warning when the CLI has no `policy lint`', async () => {
+    const { log } = await import('../log.js');
+    vi.mocked(log.warn).mockClear();
+    cli.lintUnsupported = true;
+    await driver.prepare(spec('s1'));
+    await driver.prepare(spec('s2'));
+    expect(cli.calls.filter((c) => c.args[1] === 'lint')).toHaveLength(1);
+    expect(vi.mocked(log.warn).mock.calls.filter((c) => /policy lint/.test(String(c[0])))).toHaveLength(1);
   });
 
   it('is idempotent on key: a live sandbox wearing our labels is the session', async () => {

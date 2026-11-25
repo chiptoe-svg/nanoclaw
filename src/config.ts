@@ -24,6 +24,7 @@ const envConfig = readEnvFile([
   'NANOCLAW_OPENSHELL_GROUPS',
   'NANOCLAW_OPENSHELL_FORWARD_PORT',
   'NANOCLAW_OPENSHELL_CREDENTIALS',
+  'NANOCLAW_OPENSHELL_IDLE_MINUTES',
   'WEBHOOK_PORT',
   'WEBHOOK_HOST',
   'NANOCLAW_ABSOLUTE_CEILING_MS',
@@ -161,6 +162,19 @@ export const OPENSHELL_FORWARD_PORT =
 // NANOCLAW_OPENSHELL_GROUPS. Empty = feature fully off.
 export const OPENSHELL_CREDENTIALS_RAW =
   process.env.NANOCLAW_OPENSHELL_CREDENTIALS || envConfig.NANOCLAW_OPENSHELL_CREDENTIALS || '';
+// Optional keep-alive for idle OpenShell VMs (prototype): minutes of idleness
+// (no heartbeat) before the host sweep stops an OpenShell group's session.
+// Only ever raises the ceiling above the global one (default 30 min), and only
+// for groups in NANOCLAW_OPENSHELL_GROUPS. Whole minutes, 1..1440; anything
+// else = off (0). One running VM costs ~1.4 GB host RSS.
+const openshellIdleMinutes = Number.parseInt(
+  process.env.NANOCLAW_OPENSHELL_IDLE_MINUTES || envConfig.NANOCLAW_OPENSHELL_IDLE_MINUTES || '',
+  10,
+);
+export const OPENSHELL_IDLE_MINUTES =
+  Number.isInteger(openshellIdleMinutes) && openshellIdleMinutes > 0 && openshellIdleMinutes <= 1440
+    ? openshellIdleMinutes
+    : 0;
 
 // Global overrides for the host sweep's two stuck-container timers (see
 // src/reconcile-session.ts). Raw strings: parsed and range-checked where they

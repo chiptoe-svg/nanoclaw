@@ -18,7 +18,7 @@ import type {
   StateValue,
 } from '../types.js';
 import { type RpcCall, syncInbox, uploadOutbox } from './files.js';
-import { MailboxAuthError, MailboxRpcError, SyncRpcClient, type SyncRpcOptions } from './sync-rpc.js';
+import { MailboxAuthError, MailboxRpcError, SyncRpcClient, type CallOptions, type SyncRpcOptions } from './sync-rpc.js';
 
 export { MailboxAuthError, MailboxRpcError, SyncRpcClient } from './sync-rpc.js';
 
@@ -32,9 +32,18 @@ export interface RemoteMailboxOptions extends Partial<SyncRpcOptions> {
   inboxRoot?: string;
   outboxRoot?: string;
   contextPath?: string;
+  /**
+   * Timeout for read-only poll calls (getPendingMessages). Shorter than the
+   * per-call default so a call in flight when the host restarts (reply lost
+   * behind OpenShell's proxy) is abandoned quickly; the next poll re-reads.
+   * Writes and file transfer keep the longer default.
+   */
+  readTimeoutMs?: number;
   /** Test seam: share an existing client instead of creating one. */
   client?: SyncRpcClient;
 }
+
+const DEFAULT_READ_TIMEOUT_MS = 3_000;
 
 const undef = <T>(value: T | null): T | undefined => (value === null ? undefined : value);
 
@@ -50,10 +59,12 @@ export class RemoteAgentMailbox implements AgentMailbox, MailboxOperations {
     this.outboxRoot = options.outboxRoot ?? '/workspace/outbox';
   }
 
-  private readonly rpc: RpcCall = <T>(op: string, args: unknown[] = []): T => {
+  private readonly rpc: RpcCall = <T>(op: string, args: unknown[] = []): T => this.call<T>(op, args);
+
+  private call<T>(op: string, args: unknown[], options?: CallOptions): T {
     if (!this.client.session) this.client.session = this.resolveSession();
-    return this.client.call<T>(op, args);
-  };
+    return this.client.call<T>(op, args, options);
+  }
 
   private resolveSession(): string {
     if (this.options.session) return this.options.session;
@@ -100,7 +111,11 @@ export class RemoteAgentMailbox implements AgentMailbox, MailboxOperations {
   }
 
   getPendingMessages(limit: number, isFirstPoll: boolean): InboundMessage[] {
-    const messages = this.rpc<InboundMessage[]>('getPendingMessages', [limit, isFirstPoll]);
+    // Read-only (rows stay pending until marked), so abandoning a slow call and
+    // re-polling can never duplicate anything.
+    const messages = this.call<InboundMessage[]>('getPendingMessages', [limit, isFirstPoll], {
+      timeoutMs: this.options.readTimeoutMs ?? DEFAULT_READ_TIMEOUT_MS,
+    });
     // Attachments must be on disk before the agent sees the messages naming them.
     if (messages.length > 0) syncInbox(this.rpc, this.inboxRoot);
     return messages;
