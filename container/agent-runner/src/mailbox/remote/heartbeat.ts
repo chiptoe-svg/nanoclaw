@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import { SyncRpcClient } from './sync-rpc.js';
 
 const SESSION_CONTEXT = '/app/.nanoclaw-session.json';
+/** Best-effort and idempotent: give up fast so a dead connection never stalls the loop. */
+const HEARTBEAT_TIMEOUT_MS = 3_000;
 const FAILURE_COOLDOWN_MS = 10_000;
 
 let client: SyncRpcClient | undefined;
@@ -28,7 +30,7 @@ export function sendRemoteHeartbeat(): void {
     const key = `${url}\0${token}`;
     if (!client || clientKey !== key) {
       client?.close();
-      client = new SyncRpcClient({ url, token, timeoutMs: 5_000, retryBudgetMs: 0 });
+      client = new SyncRpcClient({ url, token, timeoutMs: HEARTBEAT_TIMEOUT_MS, retryBudgetMs: 0 });
       clientKey = key;
     }
     client.session ??= sessionFromEnv();

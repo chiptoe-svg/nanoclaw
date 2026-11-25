@@ -185,6 +185,18 @@ describe('transport hardening', () => {
     expect(m.getState('k')?.value).toBe('second');
   });
 
+  test('poll reads give up after the short read timeout while writes keep the long one', async () => {
+    const m = make({ timeoutMs: 5000, readTimeoutMs: 300 });
+    await host.ctl({ cmd: 'delayNext', ms: 900 });
+    const started = Date.now();
+    expect(() => m.getPendingMessages(10, false)).toThrow(/timed out after 300ms/);
+    expect(Date.now() - started).toBeLessThan(800);
+    await Bun.sleep(800);
+    await host.ctl({ cmd: 'delayNext', ms: 600 });
+    m.setState('slow', 'ok'); // 600 ms > read timeout, < write timeout
+    expect(m.getState('slow')?.value).toBe('ok');
+  });
+
   test('retries connection refused until the host comes up', async () => {
     const late = await startFakeHost({ startDelayMs: 1000, waitReady: false });
     try {
