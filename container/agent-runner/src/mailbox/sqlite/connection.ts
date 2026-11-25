@@ -121,51 +121,6 @@ export function getOutboundDb(path = DEFAULT_OUTBOUND_PATH): Database {
   return _outbound;
 }
 
-/**
- * Record that a tool is starting. `declaredTimeoutMs` is the tool's own
- * timeout hint when one is available (Bash exposes it in the tool_use input);
- * omit for tools with no declared timeout.
- */
-export function sqliteSetContainerToolInFlight(tool: string, declaredTimeoutMs: number | null): void {
-  const now = new Date().toISOString();
-  getOutboundDb()
-    .prepare(
-      `INSERT INTO container_state (id, current_tool, tool_declared_timeout_ms, tool_started_at, updated_at)
-       VALUES (1, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         current_tool = excluded.current_tool,
-         tool_declared_timeout_ms = excluded.tool_declared_timeout_ms,
-         tool_started_at = excluded.tool_started_at,
-         updated_at = excluded.updated_at`,
-    )
-    .run(tool, declaredTimeoutMs, now, now);
-}
-
-/** Clear the in-flight tool — called on PostToolUse / PostToolUseFailure. */
-export function sqliteClearContainerToolInFlight(): void {
-  const now = new Date().toISOString();
-  getOutboundDb()
-    .prepare(
-      `INSERT INTO container_state (id, current_tool, tool_declared_timeout_ms, tool_started_at, updated_at)
-       VALUES (1, NULL, NULL, NULL, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         current_tool = NULL,
-         tool_declared_timeout_ms = NULL,
-         tool_started_at = NULL,
-         updated_at = excluded.updated_at`,
-    )
-    .run(now);
-}
-
-/**
- * Clear stale processing_ack entries on container startup.
- * If the previous container crashed, 'processing' entries are leftover.
- * Clearing them lets the new container re-process those messages.
- */
-export function sqliteClearStaleProcessingAcks(): void {
-  getOutboundDb().prepare("DELETE FROM processing_ack WHERE status = 'processing'").run();
-}
-
 /** For tests — creates in-memory DBs with the session schemas. */
 export function initTestSessionDb(): { inbound: Database; outbound: Database } {
   _testMode = true;
