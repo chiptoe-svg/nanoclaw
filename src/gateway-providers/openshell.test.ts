@@ -16,6 +16,9 @@ import {
   parseOpenShellCredentials,
   withOpenShellCredentialGroups,
 } from './openshell.js';
+import type { OpenShellNetworkApprovals } from './openshell-approvals.js';
+import { partitionGatewayProvider } from './partition.js';
+import { sandboxName } from '../drivers/openshell/translate.js';
 
 const OPENSHELL_GROUP = 'ag-lab';
 const ONECLI_GROUP = 'ag-felix';
@@ -107,7 +110,7 @@ describe('withOpenShellCredentialGroups', () => {
   it('keeps every install-wide surface of the base gateway', () => {
     const { base, gateway } = partitioned();
     expect(gateway.kind).toBe('onecli');
-    expect(gateway.approvals).toBe(base.approvals);
+    expect(gateway.approvals.legacyActions).toBe(base.approvals.legacyActions);
     expect(gateway.availability).toBe(base.availability);
     expect(gateway.agentSkills).toEqual(['onecli-gateway']);
   });
@@ -174,7 +177,30 @@ describe('OpenShell credential gateway', () => {
     );
   });
 
-  it('holds its (empty) approval subscription until shutdown', async () => {
+  it('watches the session sandbox for network approvals while the lease lives', async () => {
+    const unwatch = vi.fn();
+    const watch = vi.fn(() => unwatch);
+    const networkApprovals = { watch, subscribe: vi.fn() } as unknown as OpenShellNetworkApprovals;
+    const gateway = createOpenShellCredentialGateway({
+      credentials,
+      openshellGroups: [OPENSHELL_GROUP],
+      cli: new ProviderCli(['nc-claude-lab']),
+      networkApprovals,
+    });
+    const controller = new AbortController();
+    const lease = await gateway.sessions.ensure(input(OPENSHELL_GROUP), controller.signal);
+    expect(watch).toHaveBeenCalledWith({
+      agentGroupId: OPENSHELL_GROUP,
+      sessionId: 'sess-1',
+      sandbox: sandboxName(input(OPENSHELL_GROUP).key),
+    });
+    await lease.release!({ kind: 'session-ended', reason: 'exit' });
+    expect(unwatch).toHaveBeenCalledTimes(1);
+    controller.abort();
+    expect(unwatch).toHaveBeenCalledTimes(2); // idempotent in the bridge
+  });
+
+  it('holds its approval subscription until shutdown', async () => {
     const gateway = createOpenShellCredentialGateway({ credentials, openshellGroups: [], cli: new ProviderCli([]) });
     const controller = new AbortController();
     let done = false;
@@ -188,5 +214,59 @@ describe('OpenShell credential gateway', () => {
     controller.abort();
     await subscription;
     expect(done).toBe(true);
+  });
+});
+
+describe('partition approvals: one coordinator, outages kept per side', () => {
+  function sides() {
+    let endBase!: (err?: Error) => void;
+    const baseSubscribe = vi.fn(
+      (_decide: unknown, _signal: AbortSignal) =>
+        new Promise<void>((resolve, reject) => {
+          endBase = (err) => (err ? reject(err) : resolve());
+        }),
+    );
+    const sideSignals: AbortSignal[] = [];
+    const sideSubscribe = vi.fn(async (_decide: unknown, signal: AbortSignal) => {
+      sideSignals.push(signal);
+      throw new Error('openshell gateway down');
+    });
+    const base = { ...baseGateway(), approvals: { legacyActions: ['onecli_credential'], subscribe: baseSubscribe } };
+    const side = { ...baseGateway(), kind: 'openshell', approvals: { subscribe: sideSubscribe } };
+    const gateway = partitionGatewayProvider(base as GatewayProviderDefinition, {
+      routes: (g) => g === OPENSHELL_GROUP,
+      provider: side as GatewayProviderDefinition,
+    });
+    return { gateway, baseSubscribe, sideSubscribe, sideSignals, endBase: (err?: Error) => endBase(err) };
+  }
+
+  it("hands both sides core's decide; a failing partition side never settles the base subscription", async () => {
+    const { gateway, baseSubscribe, sideSubscribe, sideSignals, endBase } = sides();
+    const decide = vi.fn();
+    const controller = new AbortController();
+    let settled = false;
+    const run = gateway.approvals.subscribe(decide, controller.signal).finally(() => {
+      settled = true;
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(baseSubscribe.mock.calls[0][0]).toBe(decide);
+    expect(sideSubscribe.mock.calls[0][0]).toBe(decide);
+    expect(settled).toBe(false); // the side's failure is its own
+    expect(sideSignals[0].aborted).toBe(false);
+
+    endBase(new Error('onecli down'));
+    await expect(run).rejects.toThrow('onecli down'); // core sees exactly the base's outcome
+    expect(sideSignals[0].aborted).toBe(true); // and the side stops with it
+  });
+
+  it('settles cleanly with the base and stops the side on shutdown', async () => {
+    const { gateway, sideSignals, endBase } = sides();
+    const controller = new AbortController();
+    const run = gateway.approvals.subscribe(vi.fn(), controller.signal);
+    await new Promise((r) => setTimeout(r, 5));
+    controller.abort();
+    expect(sideSignals[0].aborted).toBe(true);
+    endBase();
+    await expect(run).resolves.toBeUndefined();
   });
 });

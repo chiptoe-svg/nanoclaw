@@ -31,6 +31,16 @@ How a spec becomes a sandbox (`src/drivers/openshell/translate.ts`):
   default 18755). The sandbox policy admits only those host ports.
 - The runner's output is written to `data/openshell-logs/<sandbox>/runner.log`
   (OpenShell does not capture it).
+- Endpoints an admin approved for a group are kept in
+  `data/openshell-policy/<agentGroupId>.json` (host-only, never mounted) and
+  merged into every new sandbox policy of that group, in the
+  `nanoclaw_approved` rule. Only a session without a gateway proxy gets them
+  (one whose credentials come from OpenShell providers); a proxied session's
+  egress stays the proxy. Each entry must be one exact DNS name and port;
+  others are skipped with a warning. The approval bridge that writes the file
+  is not part of this skill. To revoke an endpoint, delete its entry; running
+  sandboxes keep it until they are replaced (or
+  `openshell policy update <sandbox> --remove-endpoint host:port`).
 
 Credentials are untouched: the session gets the same gateway env as on Docker.
 
@@ -75,6 +85,8 @@ project root, overwriting any older copy.
 ```nc:copy
 payload/src/drivers/openshell-driver.ts -> src/drivers/openshell-driver.ts
 payload/src/drivers/openshell-driver.test.ts -> src/drivers/openshell-driver.test.ts
+payload/src/drivers/openshell/approved-endpoints.ts -> src/drivers/openshell/approved-endpoints.ts
+payload/src/drivers/openshell/approved-endpoints.test.ts -> src/drivers/openshell/approved-endpoints.test.ts
 payload/src/drivers/openshell/composite.ts -> src/drivers/openshell/composite.ts
 payload/src/drivers/openshell/composite.test.ts -> src/drivers/openshell/composite.test.ts
 payload/src/drivers/openshell/config.ts -> src/drivers/openshell/config.ts

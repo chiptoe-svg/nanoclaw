@@ -31,6 +31,7 @@ import { stringify } from 'yaml';
 import { log } from '../log.js';
 
 import { validateRuntimeName } from './cli.js';
+import { readApprovedEndpoints, type ApprovedEndpoint } from './openshell/approved-endpoints.js';
 import { startForwarder, type Forwarder } from './openshell/forwarder.js';
 import {
   RUNNER_LOG,
@@ -296,6 +297,7 @@ export class OpenShellSessionDriver implements SessionDriver {
       forwardPort: this.opts.forwardPort,
       probe: this.#probe,
       imageEnv: await imageEnvOf(spec.containers[0]?.image),
+      approvedEndpoints: this.#approvedEndpoints(spec.key.agentGroupId),
     });
     for (const drop of plan.dropped) {
       log.debug('OpenShell: mount not realized separately', { name, ...drop });
@@ -321,6 +323,20 @@ export class OpenShellSessionDriver implements SessionDriver {
       throw err;
     }
     return new OpenShellHandle(spec.key, name, this, plan);
+  }
+
+  /** The group's admin-approved endpoints. A bad store merges nothing (egress stays closed) and says why. */
+  #approvedEndpoints(agentGroupId: string): ApprovedEndpoint[] {
+    try {
+      const { endpoints, rejected } = readApprovedEndpoints(this.#policy.dataRoot, agentGroupId);
+      if (rejected.length > 0) {
+        log.warn('OpenShell: approved endpoints skipped (not one exact DNS name and port)', { agentGroupId, rejected });
+      }
+      return endpoints;
+    } catch (err) {
+      log.error('OpenShell: approved-endpoint store unreadable; merging none', { agentGroupId, err });
+      return [];
+    }
   }
 
   /**

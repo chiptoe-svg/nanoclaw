@@ -525,6 +525,56 @@ describe('translateSpec: OpenShell credential providers', () => {
   });
 });
 
+describe('translateSpec: admin-approved endpoints', () => {
+  const approved = [
+    { host: 'example.com', port: 443 },
+    { host: 'api.github.com', port: 443 },
+    { host: 'example.com', port: 8443 },
+  ];
+
+  it('merges them, one endpoint per host, into the nanoclaw_approved rule of a proxy-less session', () => {
+    const plan = translateSpec(openshellCredentialSpec(), opts({ approvedEndpoints: approved }));
+    expect(plan.policy.network_policies.nanoclaw_approved).toEqual({
+      name: 'nanoclaw_approved',
+      endpoints: [
+        { host: 'example.com', ports: [443, 8443] },
+        { host: 'api.github.com', ports: [443] },
+      ],
+      binaries: [{ path: '/**' }],
+    });
+    // The YAML OpenShell receives carries them too.
+    expect(parse(stringify(plan.policy)).network_policies.nanoclaw_approved.endpoints).toHaveLength(2);
+  });
+
+  it('never merges them into a session behind the gateway proxy: its egress stays the proxy', () => {
+    const plan = translateSpec(realisticSpec(), opts({ approvedEndpoints: approved }));
+    expect(plan.forward).toBeDefined();
+    expect(plan.policy.network_policies.nanoclaw_approved).toBeUndefined();
+  });
+
+  it('adds no rule when nothing is approved', () => {
+    const plan = translateSpec(openshellCredentialSpec(), opts({ approvedEndpoints: [] }));
+    expect(Object.keys(plan.policy.network_policies)).toEqual(['nanoclaw_host']);
+  });
+
+  it.each([
+    ['*.example.com', 443],
+    ['example.com', 0],
+    ['example.com', 70000],
+    ['10.0.0.0/8', 443],
+    ['1.1.1.1', 443],
+    ['localhost', 80],
+    ['host.openshell.internal', 18770],
+    ['printer.local', 631],
+    ['Example.COM', 443],
+    ['example', 443],
+  ])('refuses the spec for an entry that is not one exact DNS name and port: %s:%s', (host, port) => {
+    expect(() =>
+      translateSpec(openshellCredentialSpec(), opts({ approvedEndpoints: [{ host, port } as never] })),
+    ).toThrow(/not one exact DNS name and port/);
+  });
+});
+
 describe('sandboxName', () => {
   it('is key-derived, stable, and fits the 19-character OpenShell limit', () => {
     const a = sandboxName({ installSlug: 'e85a96b1', agentGroupId: 'g', sessionId: 'sess-1795545516491-abcdef' });

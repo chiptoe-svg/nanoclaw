@@ -12,15 +12,20 @@
  * - no gateway proxy env, CA, stub mounts or loopback forwarder, so the model
  *   client talks to the real endpoint (api.anthropic.com) directly;
  * - no dependency on the install gateway's approval bridge
- *   (`gatedByApprovals` → false via the partition).
+ *   (`gatedByApprovals` → false via the partition);
+ * - its own approval bridge for egress its policy denies
+ *   (openshell-approvals.ts): each live sandbox is watched while its lease
+ *   lives, and an approved destination is added to the sandbox and persisted
+ *   for the group.
  *
  * Every other group is served by the install's gateway exactly as before; with
  * the setting empty the install gateway is returned unwrapped.
  */
 import { OPENSHELL_GROUPS } from '../drivers/openshell/config.js';
-import { OPENSHELL_HOST } from '../drivers/openshell/translate.js';
+import { OPENSHELL_HOST, sandboxName } from '../drivers/openshell/translate.js';
 import { realOpenShellCli, type OpenShellCli } from '../drivers/openshell-driver.js';
 import { CREDENTIAL_PROVIDER_NAME } from '../drivers/types.js';
+import { DATA_DIR } from '../config.js';
 import { readEnvFile } from '../env.js';
 import { log } from '../log.js';
 
@@ -30,6 +35,7 @@ import {
   type GatewaySessionInput,
   type GatewaySessionLease,
 } from './gateway-provider-registry.js';
+import { OpenShellNetworkApprovals, realLogTail } from './openshell-approvals.js';
 import { partitionGatewayProvider } from './partition.js';
 
 const SETTING = 'NANOCLAW_OPENSHELL_CREDENTIALS';
@@ -71,6 +77,28 @@ export interface OpenShellCredentialGatewayOptions {
   /** NANOCLAW_OPENSHELL_GROUPS: only these run in a sandbox that can attach providers. */
   openshellGroups: readonly string[];
   cli: OpenShellCli;
+  /** Network approval bridge; the real one (CLI log tails, core notifications) when absent. */
+  networkApprovals?: OpenShellNetworkApprovals;
+}
+
+/** The bridge with its host dependencies. Core modules load lazily: they import the container runner. */
+export function realNetworkApprovals(cli: OpenShellCli): OpenShellNetworkApprovals {
+  return new OpenShellNetworkApprovals({
+    cli,
+    startTail: realLogTail(cli.bin),
+    dataRoot: DATA_DIR,
+    async notify(_agentGroupId, sessionId, text) {
+      const { getSession } = await import('../db/sessions.js');
+      const session = await getSession(sessionId);
+      if (!session || session.status !== 'active') return;
+      const { notifyAgent } = await import('../modules/approvals/primitive.js');
+      await notifyAgent(session, text);
+    },
+    async agentName(agentGroupId) {
+      const { getAgentGroup } = await import('../db/agent-groups.js');
+      return (await getAgentGroup(agentGroupId))?.name ?? agentGroupId;
+    },
+  });
 }
 
 /** Fail the spawn with an operator-actionable message rather than a bare `sandbox create` error. */
@@ -93,7 +121,9 @@ async function assertProvidersExist(cli: OpenShellCli, providers: readonly strin
 }
 
 export function createOpenShellCredentialGateway(opts: OpenShellCredentialGatewayOptions): GatewayProviderDefinition {
-  async function ensure(input: GatewaySessionInput): Promise<GatewaySessionLease> {
+  const networkApprovals = opts.networkApprovals ?? realNetworkApprovals(opts.cli);
+
+  async function ensure(input: GatewaySessionInput, signal?: AbortSignal): Promise<GatewaySessionLease> {
     const { agentGroupId, sessionId } = input.key;
     const providers = opts.credentials.get(agentGroupId);
     if (!providers) throw new Error(`agent group ${agentGroupId} has no OpenShell credential providers`);
@@ -107,12 +137,19 @@ export function createOpenShellCredentialGateway(opts: OpenShellCredentialGatewa
     // An adopted sandbox already has its providers; an OpenShell blip must not stop it.
     if (input.disposition !== 'adopt') await assertProvidersExist(opts.cli, providers);
     log.info('OpenShell credential providers applied', { agentGroupId, sessionId, providers });
+    // The driver names the sandbox from the key alone (default prefix), so the
+    // lease can watch it before it exists; the tail retries until it does.
+    const unwatch = networkApprovals.watch({ agentGroupId, sessionId, sandbox: sandboxName(input.key) });
+    signal?.addEventListener('abort', unwatch, { once: true });
     return {
       contribution: {
         credentialProviders: [...providers],
         // No gateway hop: egress is the sandbox's own declarative policy plus
         // the providers' entries. The driver ignores a `host` target.
         networkAccess: { endpoint: OPENSHELL_HOST, target: { kind: 'host' } },
+      },
+      async release() {
+        unwatch();
       },
     };
   }
@@ -122,12 +159,8 @@ export function createOpenShellCredentialGateway(opts: OpenShellCredentialGatewa
     agentSkills: [],
     sessions: { ensure },
     approvals: {
-      // No bridge yet (see partition.ts HOOK): held until shutdown, never deciding.
-      subscribe: (_decide, signal) =>
-        new Promise<void>((resolve) => {
-          if (signal.aborted) resolve();
-          else signal.addEventListener('abort', () => resolve(), { once: true });
-        }),
+      // Joined to the base gateway's subscription by the partition (partition.ts).
+      subscribe: (decide, signal) => networkApprovals.subscribe(decide, signal),
     },
   };
 }

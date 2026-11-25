@@ -29,10 +29,10 @@
    rm -rf src/drivers/openshell src/drivers/openshell-driver.ts src/drivers/openshell-driver.test.ts
    ```
 
-5. Delete the driver's staging and log directories:
+5. Delete the driver's staging, log and approved-endpoint directories:
 
    ```bash
-   rm -rf data/openshell-staging data/openshell-logs
+   rm -rf data/openshell-staging data/openshell-logs data/openshell-policy
    ```
 
 6. Rebuild and restart: `pnpm run build && bash setup/lib/restart.sh`.

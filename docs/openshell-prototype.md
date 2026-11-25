@@ -236,12 +236,46 @@ already isolates spawns. An OpenShell-credential spawn checks
 missing. Adoption skips that check, so an OpenShell blip does not stop a
 surviving sandbox.
 
-**Approvals hook.** The OpenShell side has no approval bridge yet. Its
-`approvals.subscribe` waits until shutdown and never decides anything. The
-next milestone plugs in at the `HOOK` comment in `partition.ts`. There, the
-OpenShell draft-policy subscription joins OneCLI's, and an outage is reported
-per side, so `stopGatewaySessionsForUnavailability` would need a group
-predicate.
+**Network approvals** (added 2026-11-25, `src/gateway-providers/openshell-approvals.ts`).
+OpenShell refuses a denied connection at once; there is no held request. So
+the bridge works per rule:
+
+- Detect: one `openshell logs <sandbox> --tail --source sandbox` per live
+  sandbox of a partition group (watched from the session lease, so adoption is
+  covered). A deny is the OCSF line
+  `NET:OPEN [MED] DENIED /usr/bin/curl(381) -> example.com:443 [reason:transparent_tcp_policy_denied]`.
+  The tail replays its buffer on connect, so a per-sandbox cursor skips events
+  seen before. The CLI has no draft-rule listing; gRPC `GetDraftPolicy` would
+  need `@grpc/*` or the SDK, so it is not used.
+- Ask: a `trigger: 'policy'` gateway approval request through core's
+  coordinator (approver routing, `pending_approvals`, card, click auth,
+  expiry; 30-minute window). One card per (group, host, port) while pending,
+  at most 3 pending per group, and a refusal or timeout is remembered for
+  15 minutes. Only exact DNS names are carded. IP literals, `*.internal`,
+  `.local` and the like are logged, never carded.
+- Apply: the endpoint goes into `data/openshell-policy/<group>.json`, then
+  `openshell policy update <sandbox> --add-endpoint host:port --binary '/**' --rule-name nanoclaw_approved --wait`
+  runs on each of the group's running sandboxes. It takes about 8 s on 0.1.10.
+  New sandboxes get the file's entries from `translate.ts`. Any binary is
+  allowed because the card approves a destination for the agent, and every
+  binary in the sandbox acts for the agent.
+- Tell: core's `notifyAgent` (a system chat message plus a wake), when the
+  card is sent ("blocked, an admin was asked") and after the decision
+  ("approved, retry" or "not approved").
+- Outage: the partition's `approvals.subscribe` runs the base's subscription
+  and the OpenShell bridge side by side. The combined promise settles exactly
+  when the base's does, so core's outage handling sees only OneCLI. A failed
+  log tail is retried with backoff and stops nothing: OpenShell still enforces
+  the denial, so an outage costs cards, not containment. No core change was
+  needed. While the base (OneCLI) subscription is down, the coordinator
+  decides nothing, so no OpenShell card appears either.
+
+Live check (2026-11-25, dev sandbox, fake coordinator): from the denied
+`curl https://example.com` to the decision took 0.4 s. From approval to the
+agent's message took 8.2 s, of which `--wait` was 8.1 s. The retry returned 200.
+`example.net` was denied, the agent was told, the retry stayed blocked, and no
+second card was raised. A new sandbox of the same group reached example.com
+straight away from the persisted file.
 
 ### Verified (live, dummy token, 2026-11-24)
 
@@ -337,16 +371,15 @@ logged-in machine prints `sk-ant-oat…`). Run these from `~/nanoclaw-v2`:
   reaches only the remote mailbox and the endpoints of its attached providers.
   Web search MCP, git, curl and agent-browser to other hosts are blocked. To
   give them access, add providers (or provider profiles with `endpoints` and no
-  credentials) for those hosts. NanoClaw has no per-group extra-policy setting
-  yet. The approvals milestone (OpenShell draft rules turned into cards) is the
-  intended route.
+  credentials) for those hosts, or approve them as they come up (network
+  approvals above).
 - **Startup still waits for OneCLI.** The host waits for the OneCLI approval
   subscription before it adopts or spawns anything. If OneCLI is down at host
   start, OpenShell-credential groups wait too. Only outages _after_ startup
   are scoped per group.
-- **No approvals** for OpenShell-credential groups (see the hook above). The
-  OpenShell side has no health lease, so an OpenShell gateway outage shows up
-  as failed spawns and dying VMs, not as closed admission.
+- The OpenShell side has no health lease, so an OpenShell gateway outage shows
+  up as failed spawns, dying VMs and missing approval cards, not as closed
+  admission.
 - Only the Claude provider has been looked at. Codex and OpenCode would need
   their own profiles (env var, endpoints, binary path). The agent gets no
   container skill describing the OpenShell credentials.
@@ -446,9 +479,9 @@ Prefer the MicroVM driver on macOS, or the Docker driver on a Linux host.
 1. **Credentials through OpenShell providers** instead of OneCLI: built as a
    per-group partition (see "Credentials from OpenShell providers"); needs the
    real setup-token test and a per-group answer for general egress.
-2. **Approvals**: bridge OpenShell pending rules to NanoClaw approval cards
-   (rule-level; OpenShell has no per-request hold, #4406), and persist approved
-   rules into the group's policy so new sandboxes don't re-ask.
+2. **Approvals**: done for network egress of partition groups (see "Network
+   approvals"). Still open: L7 (method/path) denials, and revoking an endpoint
+   from a running sandbox when its entry is deleted.
 3. **Keep idle VMs alive longer**: the prototype knob
    (`NANOCLAW_OPENSHELL_IDLE_MINUTES`) was dropped with the move to a skill;
    needs a core hook, a per-group setting and a memory-aware cap.

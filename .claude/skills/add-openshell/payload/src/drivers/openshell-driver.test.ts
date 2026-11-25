@@ -273,6 +273,33 @@ describe('start', () => {
     expect(args).not.toContain('--no-auto-providers');
   });
 
+  it("merges the group's admin-approved endpoints into a proxy-less session's policy; a bad store merges none", async () => {
+    const proxyless = withProviders(spec(), ['nc-claude-lab']);
+    delete proxyless.containers[0].contributedEnv!.HTTPS_PROXY;
+    const store = path.join(policy.dataRoot, 'openshell-policy', 'g1.json');
+    fs.mkdirSync(path.dirname(store), { recursive: true });
+    fs.writeFileSync(
+      store,
+      JSON.stringify({
+        endpoints: [
+          { host: 'example.com', port: 443 },
+          { host: '*.evil.com', port: 443 },
+        ],
+      }),
+    );
+    await driver.prepare(proxyless);
+    const written = fs.readFileSync(path.join(staging(N1), 'policy.yaml'), 'utf8');
+    expect(written).toContain('nanoclaw_approved');
+    expect(written).toContain('host: example.com');
+    expect(written).not.toContain('evil.com');
+
+    fs.writeFileSync(store, '{not json');
+    await driver.prepare(
+      withProviders({ ...proxyless, key: { ...proxyless.key, sessionId: 's2' } }, ['nc-claude-lab']),
+    );
+    expect(fs.readFileSync(path.join(staging(N2), 'policy.yaml'), 'utf8')).not.toContain('nanoclaw_approved');
+  });
+
   it('refuses a provider name that is not a plain name', async () => {
     await expect(driver.prepare(withProviders(spec(), ['--gateway=evil']))).rejects.toMatchObject({
       kind: 'spec-invalid',

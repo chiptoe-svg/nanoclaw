@@ -99,7 +99,9 @@ describe('gateway provider registry', () => {
     const selected = gateway.getGatewayProvider();
     expect(selected).not.toBe(active);
     expect(selected.kind).toBe('active');
-    expect(selected.approvals).toBe(active.approvals);
+    // The base's approvals, with the partition's bridge joined to its subscription.
+    expect(selected.approvals).not.toBe(active.approvals);
+    expect({ ...selected.approvals, subscribe: null }).toEqual({ ...active.approvals, subscribe: null });
     expect(selected.sessions.gatedByApprovals!('lab')).toBe(false);
     expect(selected.sessions.gatedByApprovals!('g1')).toBe(true);
     await selected.sessions.ensure(input, new AbortController().signal);

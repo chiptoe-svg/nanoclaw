@@ -40,6 +40,7 @@
 import { createHash } from 'crypto';
 import path from 'path';
 
+import { APPROVED_RULE, isApprovableEndpoint, type ApprovedEndpoint } from './approved-endpoints.js';
 import {
   labelsForKey,
   specInvalid,
@@ -134,6 +135,15 @@ export interface TranslateOptions {
    * $EPOCHREALTIME so start-up can be timed.
    */
   logsDir?: string;
+  /**
+   * Endpoints an admin approved for this agent group
+   * (`data/openshell-policy/<group>.json`, see approved-endpoints.ts). Merged
+   * into the `nanoclaw_approved` rule only for a session with no gateway proxy
+   * (credentials from OpenShell providers): a proxied session's egress stays
+   * the proxy alone. Every entry must be one exact DNS name and port; anything
+   * else refuses the spec.
+   */
+  approvedEndpoints?: readonly ApprovedEndpoint[];
 }
 
 export interface VmMount {
@@ -326,6 +336,19 @@ function credentialProviders(spec: SessionSpec): string[] {
     if (!PROVIDER_NAME.test(name)) throw specInvalid(`invalid credential provider name '${name}'`);
   }
   return [...names];
+}
+
+/** One endpoint per host (see the `nanoclaw_host` note below), ports merged and sorted. */
+function approvedEndpointList(entries: readonly ApprovedEndpoint[]): NetworkEndpoint[] {
+  const byHost = new Map<string, Set<number>>();
+  for (const entry of entries) {
+    if (!isApprovableEndpoint(entry)) {
+      throw specInvalid(`approved endpoint ${JSON.stringify(entry)} is not one exact DNS name and port`);
+    }
+    if (!byHost.has(entry.host)) byHost.set(entry.host, new Set());
+    byHost.get(entry.host)!.add(entry.port);
+  }
+  return [...byHost].map(([host, ports]) => ({ host, ports: [...ports].sort((a, b) => a - b) }));
 }
 
 export function translateSpec(spec: SessionSpec, opts: TranslateOptions): SandboxPlan {
@@ -578,6 +601,12 @@ export function translateSpec(spec: SessionSpec, opts: TranslateOptions): Sandbo
     // agent tool (bun, node, the SDK's claude binary, git, curl, chromium)
     // sends HTTPS through the proxy, so a per-binary list would be a guess.
     policy.network_policies.nanoclaw_host = { name: 'nanoclaw_host', endpoints, binaries: [{ path: '/**' }] };
+  }
+  const approved = forward ? [] : approvedEndpointList(opts.approvedEndpoints ?? []);
+  if (approved.length > 0) {
+    // Any binary, as the live approval adds it: the card approves a
+    // destination for the agent, and every binary in the sandbox is the agent's.
+    policy.network_policies[APPROVED_RULE] = { name: APPROVED_RULE, endpoints: approved, binaries: [{ path: '/**' }] };
   }
 
   const unsizedResources = (Object.keys(spec.resources) as (keyof SessionResources)[]).filter(
