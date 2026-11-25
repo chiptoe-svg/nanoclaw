@@ -185,23 +185,6 @@ export class AnchoredDir {
     }
   }
 
-  /** Rename `from` to `to` inside this directory. A symlink at `to` is replaced, never followed. */
-  rename(from: string, to: string): void {
-    fs.renameSync(this.entryPath(from), this.entryPath(to));
-  }
-
-  /** Set the mtime of regular file `name` to now, creating it if absent. Refuses a symlink or non-regular leaf. */
-  touch(name: string): void {
-    const fd = fs.openSync(this.entryPath(name), O_WRONLY | O_CREAT | O_NOFOLLOW | O_NONBLOCK, 0o666);
-    try {
-      if (!fs.fstatSync(fd).isFile()) throw new Error(`refusing '${name}': not a regular file`);
-      const now = new Date();
-      fs.futimesSync(fd, now, now);
-    } finally {
-      fs.closeSync(fd);
-    }
-  }
-
   entries(): string[] {
     return fs.readdirSync(this.alias);
   }

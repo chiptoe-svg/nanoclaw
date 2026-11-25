@@ -128,6 +128,40 @@ describe('translateSpec: mounts', () => {
     ]);
   });
 
+  it('drops the remote-mailbox heartbeat file and its env so the runner heartbeats over RPC', () => {
+    const spec = realisticSpec();
+    const hb = `${D}/v2-sessions/g1/.remote-workspace/sess-1.heartbeat`;
+    spec.containers[0].mounts.push(mount(hb, '/app/.nanoclaw-heartbeat'));
+    spec.containers[0].env.NANOCLAW_HEARTBEAT_PATH = '/app/.nanoclaw-heartbeat';
+    const withHb = probe(
+      [
+        `${D}/v2-sessions/g1/.remote-workspace/sess-1`,
+        '/inst/container/skills',
+        '/inst/container/agent-runner/src',
+        G,
+        `${D}/v2-sessions/g1/.claude-shared`,
+        `${G}/plugins`,
+      ],
+      [
+        `${D}/v2-sessions/g1/sess-1/session.json`,
+        `${D}/onecli/combined-abc.pem`,
+        `${D}/onecli/ca-def.pem`,
+        `${G}/CLAUDE.md`,
+        `${G}/container.json`,
+        hb,
+      ],
+    );
+    const plan = translateSpec(spec, opts({ probe: withHb }));
+    expect(plan.dropped).toContainEqual({
+      containerPath: '/app/.nanoclaw-heartbeat',
+      hostPath: hb,
+      reason: 'heartbeat-via-rpc',
+      readOnlyLost: false,
+    });
+    expect(plan.staged.map((f) => f.target)).not.toContain('/app/.nanoclaw-heartbeat');
+    expect(effectiveEnv(plan).NANOCLAW_HEARTBEAT_PATH).toBeUndefined();
+  });
+
   it('stages files no parent covers and rewrites every env value naming them', () => {
     const plan = translateSpec(realisticSpec(), opts());
     expect(plan.staged).toEqual([

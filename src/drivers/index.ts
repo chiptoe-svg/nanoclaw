@@ -39,10 +39,12 @@
 import os from 'os';
 import path from 'path';
 
-import { DATA_DIR, GROUPS_DIR, OPENSHELL_FORWARD_PORT, OPENSHELL_GROUPS, REMOTE_MAILBOX_GROUPS } from '../config.js';
+import { DATA_DIR, GROUPS_DIR, OPENSHELL_FORWARD_PORT, OPENSHELL_GROUPS } from '../config.js';
 import { EGRESS_NETWORK, egressNetworkArgs, ensureEgressNetwork, onEgressNetworkOnly } from '../egress-lockdown.js';
 import { readEnvFile } from '../env.js';
 import { log } from '../log.js';
+// OpenShell prototype only: its groups must also use the remote mailbox skill.
+import { REMOTE_MAILBOX_GROUPS } from '../mailbox/remote/config.js';
 import '../provider-contracts/index.js';
 import { protectedProviderDocumentSourcePaths } from '../provider-contracts/realize.js';
 

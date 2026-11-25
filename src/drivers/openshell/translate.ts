@@ -165,7 +165,7 @@ export interface RelocatedMount {
 export interface DroppedMount {
   containerPath: string;
   hostPath: string;
-  reason: 'covered-by-parent' | 'session-context-unused';
+  reason: 'covered-by-parent' | 'session-context-unused' | 'heartbeat-via-rpc';
   /** The spec asked for read-only and the guest now sees it read-write. */
   readOnlyLost: boolean;
 }
@@ -314,6 +314,16 @@ export function translateSpec(spec: SessionSpec, opts: TranslateOptions): Sandbo
   const contributedRaw = { ...(agent.contributedEnv ?? {}) };
   const composedRaw = Object.fromEntries(Object.entries(agent.env).filter(([k]) => !(k in contributedRaw)));
   const remoteMailbox = Boolean(contributedRaw.NANOCLAW_MAILBOX_SESSION || composedRaw.NANOCLAW_MAILBOX_SESSION);
+  // The remote-mailbox driver binds a heartbeat file and names it in
+  // NANOCLAW_HEARTBEAT_PATH. A staged copy would never reach the host, so drop
+  // both: without the variable the runner heartbeats over the mailbox RPC.
+  const heartbeatTarget = remoteMailbox
+    ? (contributedRaw.NANOCLAW_HEARTBEAT_PATH ?? composedRaw.NANOCLAW_HEARTBEAT_PATH)
+    : undefined;
+  if (heartbeatTarget !== undefined) {
+    delete contributedRaw.NANOCLAW_HEARTBEAT_PATH;
+    delete composedRaw.NANOCLAW_HEARTBEAT_PATH;
+  }
 
   // ---- mounts ----
   const dirs: Array<MountSpec & { source: string }> = [];
@@ -350,6 +360,15 @@ export function translateSpec(spec: SessionSpec, opts: TranslateOptions): Sandbo
 
   const staged: StagedFile[] = [];
   for (const file of files) {
+    if (heartbeatTarget !== undefined && file.containerPath === heartbeatTarget) {
+      dropped.push({
+        containerPath: file.containerPath,
+        hostPath: file.hostPath,
+        reason: 'heartbeat-via-rpc',
+        readOnlyLost: false,
+      });
+      continue;
+    }
     if (file.containerPath === SESSION_CONTEXT_PATH) {
       if (remoteMailbox) {
         dropped.push({

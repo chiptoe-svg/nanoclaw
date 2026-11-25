@@ -58,13 +58,6 @@ import {
 import { releaseGatewaySession, type GatewaySessionControl } from './gateway-session-lifecycle.js';
 import { initGroupFilesystem } from './group-init.js';
 import { getAgentMailbox } from './mailbox/index.js';
-import {
-  isRemoteMailboxGroup,
-  issueRemoteMailboxEnv,
-  prepareRemoteWorkspace,
-  releaseRemoteMailbox,
-  withdrawRemoteMailboxEnv,
-} from './mailbox/remote/spawn.js';
 import { stopTypingRefresh } from './modules/typing/index.js';
 import { log } from './log.js';
 import { validateAdditionalMounts } from './modules/mount-security/index.js';
@@ -507,7 +500,6 @@ async function spawnContainer(session: Session): Promise<void> {
   const containerName = `nanoclaw-v2-${agentGroup.folder}-${Date.now()}`;
   const mounts = await buildMounts(agentGroup, session, containerConfig, provider, contribution, surfaces);
   const mailboxEnvironment = await mailbox.runnerEnvironment(mailboxKey);
-  let remoteMailboxEnvironment: Record<string, string> | undefined;
 
   const driver = getSessionDriver();
   // Core calls the same idempotent provider operation for new and surviving
@@ -530,9 +522,6 @@ async function spawnContainer(session: Session): Promise<void> {
   let spec: SessionSpec;
   let claimIncarnation: number | null = null;
   try {
-    // Opt-in remote mailbox: a fresh token per spawn; all tokens are revoked when
-    // the container ends (finish), only this one when the spawn fails below.
-    if (isRemoteMailboxGroup(agentGroup.id)) remoteMailboxEnvironment = issueRemoteMailboxEnv(mailboxKey);
     if (gateway.containers?.length && !driver.capabilities().auxiliaryContainers) {
       // Named at composition, where the error can say which side to change —
       // not left for the driver's refusal backstop to discover.
@@ -551,7 +540,6 @@ async function spawnContainer(session: Session): Promise<void> {
       contribution,
       gateway,
       mailboxEnvironment,
-      remoteMailboxEnvironment,
     });
 
     log.info('Spawning session', { sessionId: session.id, agentGroup: agentGroup.name, containerName });
@@ -568,7 +556,6 @@ async function spawnContainer(session: Session): Promise<void> {
     // touches the file itself.
     fs.rmSync(heartbeatPath(agentGroup.id, session.id), { force: true });
   } catch (err) {
-    if (remoteMailboxEnvironment) withdrawRemoteMailboxEnv(mailboxKey, remoteMailboxEnvironment);
     if (claimIncarnation !== null) await releaseClaimQuietly(session.id, claimIncarnation);
     await releaseGatewaySession(gatewaySession, {
       kind: claimIncarnation === null ? 'host-detached' : 'session-ended',
@@ -581,7 +568,6 @@ async function spawnContainer(session: Session): Promise<void> {
   try {
     handle = await driver.prepare(spec);
   } catch (err) {
-    if (remoteMailboxEnvironment) withdrawRemoteMailboxEnv(mailboxKey, remoteMailboxEnvironment);
     await releaseClaimQuietly(session.id, claimIncarnation);
     await releaseGatewaySession(gatewaySession, { kind: 'session-ended', reason: 'driver-prepare-failed' });
     throw err;
@@ -862,12 +848,6 @@ async function finish(sessionId: string, runtime: ActiveSessionRuntime, failure?
     scheduleDeferredFinish(sessionId, runtime, failure);
     return;
   }
-
-  // The container is gone: its remote-mailbox token and scratch workspace go
-  // with it. Runs for adopted runtimes too; never on host shutdown (finish is
-  // not reached then), so a restarted host keeps adopted containers working.
-  const handleKey = runtime.handle.key;
-  if (handleKey) releaseRemoteMailbox({ agentGroupId: handleKey.agentGroupId, sessionId: handleKey.sessionId });
 
   try {
     await markContainerStopped(sessionId);
@@ -1260,19 +1240,7 @@ export async function buildMounts(
   const scope = agentGroup.id;
 
   // Session workspace: mailbox-selected state plus outbox and heartbeat files.
-  // An opted-in remote-mailbox group never sees the session directory: its
-  // /workspace is a per-spawn scratch dir and the runner reaches the mailbox
-  // over HTTP (see mailbox/remote/spawn.ts).
-  const workspaceHostPath = isRemoteMailboxGroup(agentGroup.id)
-    ? prepareRemoteWorkspace({ agentGroupId: agentGroup.id, sessionId: session.id })
-    : sessDir;
-  mounts.push({
-    hostPath: workspaceHostPath,
-    containerPath: '/workspace',
-    readonly: false,
-    mountClass: 'group-state',
-    scope,
-  });
+  mounts.push({ hostPath: sessDir, containerPath: '/workspace', readonly: false, mountClass: 'group-state', scope });
   mounts.push({
     hostPath: sessionContextPath(agentGroup.id, session.id),
     containerPath: '/app/.nanoclaw-session.json',
@@ -1462,12 +1430,6 @@ export interface ComposeSessionSpecInput {
   gateway: GatewayContribution;
   /** Non-secret configuration supplied by the selected mailbox implementation. */
   mailboxEnvironment: Record<string, string>;
-  /**
-   * Remote-mailbox runner env (URL, per-spawn bearer token, session). Carries
-   * a credential-named variable, so it rides the contributed lane. Absent for
-   * groups not opted in.
-   */
-  remoteMailboxEnvironment?: Record<string, string>;
 }
 
 /**
@@ -1488,17 +1450,8 @@ export function mergeMounts(composed: MountSpec[], contributed: MountSpec[]): Mo
  * says how it is realized.
  */
 export function composeSessionSpec(input: ComposeSessionSpecInput): SessionSpec {
-  const {
-    agentGroup,
-    session,
-    containerName,
-    mounts,
-    containerConfig,
-    contribution,
-    gateway,
-    mailboxEnvironment,
-    remoteMailboxEnvironment,
-  } = input;
+  const { agentGroup, session, containerName, mounts, containerConfig, contribution, gateway, mailboxEnvironment } =
+    input;
 
   const env: Record<string, string> = {
     TZ: containerConfig.timezone ?? TIMEZONE,
@@ -1512,7 +1465,6 @@ export function composeSessionSpec(input: ComposeSessionSpecInput): SessionSpec 
   const contributedEnv: Record<string, string> = {
     ...(contribution.env ?? {}),
     ...(gateway.env ?? {}),
-    ...(remoteMailboxEnvironment ?? {}),
   };
 
   const hostUid = process.getuid?.();

@@ -5,9 +5,10 @@ import path from 'node:path';
 
 import { touchHeartbeat } from '../../heartbeat.js';
 import { createComposedMailbox } from '../compose.js';
+import { resetAgentMailboxForTesting } from '../index.js';
 import type { InboundMessage, OutboundMessageDraft } from '../types.js';
 import { type FakeHost, freePort, startFakeHost } from './fake-host.js';
-import { resetRemoteHeartbeatForTesting } from './heartbeat.js';
+import { resetRemoteHeartbeatForTesting, sendRemoteHeartbeat } from './heartbeat.js';
 import { MailboxAuthError, MailboxRpcError, RemoteAgentMailbox } from './index.js';
 import { SqliteAgentMailbox } from '../sqlite/index.js';
 
@@ -341,35 +342,38 @@ describe('outbox upload', () => {
 });
 
 describe('heartbeat', () => {
-  test('uses the heartbeat op when the mailbox URL is set and leaves the file alone', async () => {
-    const file = path.join(tmp(), 'hb');
-    process.env.NANOCLAW_HEARTBEAT_PATH = file;
+  test('the heartbeat op reaches the host', async () => {
     process.env.NANOCLAW_MAILBOX_URL = host.url;
     process.env.NANOCLAW_MAILBOX_TOKEN = host.token;
     process.env.NANOCLAW_MAILBOX_SESSION = host.session;
     const before = (await host.dump()).heartbeats;
-    touchHeartbeat();
-    touchHeartbeat();
+    sendRemoteHeartbeat();
+    sendRemoteHeartbeat();
     expect((await host.dump()).heartbeats).toBe(before + 2);
-    expect(fs.existsSync(file)).toBe(false);
   });
 
-  test('never throws and backs off when the host is down', () => {
+  test('the heartbeat op never throws and backs off when the host is down', () => {
     process.env.NANOCLAW_MAILBOX_URL = 'http://127.0.0.1:1/v1/mailbox';
     process.env.NANOCLAW_MAILBOX_TOKEN = 't';
     process.env.NANOCLAW_MAILBOX_SESSION = 'a/b';
-    expect(() => touchHeartbeat()).not.toThrow();
+    expect(() => sendRemoteHeartbeat()).not.toThrow();
     const started = Date.now();
-    touchHeartbeat(); // cooling down: immediate
+    sendRemoteHeartbeat(); // cooling down: immediate
     expect(Date.now() - started).toBeLessThan(50);
   });
 
-  test('touches the file when no mailbox URL is set', () => {
+  test('a remote-mailbox container touches its mounted heartbeat file', () => {
+    // The host driver sets NANOCLAW_HEARTBEAT_PATH beside the mailbox env and
+    // hard-links that file at <sessionDir>/.heartbeat.
     const file = path.join(tmp(), 'hb');
-    process.env.NANOCLAW_HEARTBEAT_PATH = file;
     fs.writeFileSync(file, '');
+    fs.utimesSync(file, 0, 0);
+    process.env.NANOCLAW_HEARTBEAT_PATH = file;
+    process.env.NANOCLAW_MAILBOX_URL = host.url;
+    process.env.NANOCLAW_MAILBOX_TOKEN = host.token;
+    process.env.NANOCLAW_MAILBOX_SESSION = host.session;
     touchHeartbeat();
-    expect(fs.existsSync(file)).toBe(true);
+    expect(fs.statSync(file).mtimeMs).toBeGreaterThan(Date.now() - 60_000);
   });
 });
 
@@ -380,5 +384,17 @@ describe('compose', () => {
       RemoteAgentMailbox,
     );
     expect(() => createComposedMailbox({ NANOCLAW_MAILBOX_URL: host.url })).toThrow(/TOKEN/);
+  });
+
+  test('the registered mailbox is the composed one: remote when the URL is set', async () => {
+    // compose.ts (imported above, as the runner's modules barrel does) registers at import.
+    const registered = resetAgentMailboxForTesting();
+    expect(registered).toBeDefined();
+    process.env.NANOCLAW_MAILBOX_URL = host.url;
+    process.env.NANOCLAW_MAILBOX_TOKEN = host.token;
+    process.env.NANOCLAW_MAILBOX_SESSION = host.session;
+    const mailbox = registered!();
+    expect(mailbox).toBeInstanceOf(RemoteAgentMailbox);
+    await mailbox.stop();
   });
 });

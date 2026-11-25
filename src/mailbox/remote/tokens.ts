@@ -102,3 +102,8 @@ export function verifyMailboxToken(authHeader: unknown, sessionHeader: unknown):
   }
   return key && match && stored.length > 0 && equal ? key : null;
 }
+
+/** Whether any token is on file for this session. */
+export function tokenFileExists(key: RemoteSessionKey): boolean {
+  return isValidSessionKey(key) && fs.existsSync(tokenPath(key));
+}

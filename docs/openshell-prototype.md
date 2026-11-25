@@ -13,9 +13,19 @@ related upstream question is nanocoai/nanoclaw#4543.
 | Remote agent mailbox (runner) | `container/agent-runner/src/mailbox/remote/`                                                  | Synchronous calls via a worker thread + `Atomics.wait` (request ids, timeouts, retry), inbox sync, outbox upload, heartbeat. Session comes from `NANOCLAW_MAILBOX_SESSION` when there is no context file.                                                                             |
 | OpenShell session driver      | `src/drivers/openshell-driver.ts`, `src/drivers/openshell/{translate,composite,forwarder}.ts` | Drives the `openshell` CLI. Translates a NanoClaw spec to a sandbox (mounts, env, policy, entrypoint prelude), adopts sandboxes after a host restart, captures runner output. A composite driver routes only opted-in groups to OpenShell.                                            |
 
-Opt-in (`.env`), both required for an OpenShell group:
+The remote mailbox is installed by the `/add-remote-mailbox` skill
+(`.claude/skills/add-remote-mailbox/`), which also selects its session driver
+with `NANOCLAW_RUNTIME_DRIVER=remote-mailbox`. That driver wraps `docker`, and
+the OpenShell composite sits inside `docker`, so an OpenShell group gets the
+remote-mailbox spec rewrite first; `translate.ts` then drops the heartbeat file
+mount and `NANOCLAW_HEARTBEAT_PATH` (a MicroVM cannot mount single files), and
+the runner heartbeats over the mailbox RPC instead
+(`container/agent-runner/src/heartbeat.ts`, fork shim).
+
+Opt-in (`.env`), all required for an OpenShell group:
 
 ```
+NANOCLAW_RUNTIME_DRIVER=remote-mailbox
 NANOCLAW_REMOTE_MAILBOX_GROUPS=<agentGroupId,...>
 NANOCLAW_OPENSHELL_GROUPS=<agentGroupId,...>
 # optional: NANOCLAW_MAILBOX_PORT=18770  NANOCLAW_OPENSHELL_FORWARD_PORT=18755

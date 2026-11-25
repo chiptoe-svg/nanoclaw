@@ -5,7 +5,7 @@
  * start delivery polls, start sweep, handle shutdown.
  */
 import { backfillContainerConfigs } from './backfill-container-configs.js';
-import { CENTRAL_DB_PATH, MAILBOX_PORT } from './config.js';
+import { CENTRAL_DB_PATH } from './config.js';
 import { enforceStartupBackoff, resetCircuitBreaker } from './circuit-breaker.js';
 import {
   abortGatewaySessionObservers,
@@ -25,7 +25,6 @@ import { startGatewayApprovalCoordinator, stopGatewayApprovalCoordinator } from 
 import { startGatewayAvailabilityMonitor } from './gateway-availability.js';
 import { getGatewayProvider } from './gateway-providers/index.js';
 import { routeInbound } from './router.js';
-import { startRemoteMailboxServiceIfEnabled, type RemoteMailboxService } from './mailbox/remote/startup.js';
 import { log } from './log.js';
 import { enforceUpgradeTripwire } from './upgrade-state.js';
 
@@ -59,7 +58,6 @@ import {
 } from './channels/channel-registry.js';
 
 let stopGatewayAvailabilityMonitor: (() => void) | undefined;
-let remoteMailboxService: RemoteMailboxService | undefined;
 
 async function main(): Promise<void> {
   log.info('NanoClaw starting');
@@ -171,9 +169,6 @@ async function main(): Promise<void> {
     stopGatewaySessionsForUnavailability,
     resumeGatewaySessionAdmission,
   );
-  // Before adoption: containers adopted from a previous host may already be
-  // retrying against this port.
-  remoteMailboxService = await startRemoteMailboxServiceIfEnabled(MAILBOX_PORT);
   await adoptRunningSessions();
   releaseInbound();
 
@@ -213,7 +208,6 @@ async function shutdown(signal: string): Promise<void> {
   stopDeliveryPolls();
   stopHostSweep();
   await stopCliServer();
-  await remoteMailboxService?.stop();
   try {
     await teardownChannelAdapters();
   } finally {

@@ -9,7 +9,7 @@ const state = vi.hoisted(() => ({
   ready: vi.fn(),
 }));
 vi.mock('./backfill-container-configs.js', () => ({ backfillContainerConfigs: vi.fn() }));
-vi.mock('./config.js', () => ({ CENTRAL_DB_PATH: ':memory:', MAILBOX_PORT: 18770, REMOTE_MAILBOX_GROUPS: [] }));
+vi.mock('./config.js', () => ({ CENTRAL_DB_PATH: ':memory:' }));
 vi.mock('./circuit-breaker.js', () => ({ enforceStartupBackoff: vi.fn(), resetCircuitBreaker: vi.fn() }));
 vi.mock('./upgrade-state.js', () => ({ enforceUpgradeTripwire: vi.fn() }));
 vi.mock('./db/connection.js', () => ({ initDb: async () => ({ dialect: 'sqlite' }), closeDb: vi.fn() }));

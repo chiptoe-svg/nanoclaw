@@ -1,4 +1,8 @@
-/** Best-effort remote heartbeat used by touchHeartbeat() when NANOCLAW_MAILBOX_URL is set. */
+/**
+ * Best-effort heartbeat over the mailbox RPC, for runtimes that cannot mount
+ * the heartbeat file (the fork's OpenShell prototype calls it from
+ * touchHeartbeat()). Docker sessions touch a mounted file instead.
+ */
 import fs from 'node:fs';
 
 import { SyncRpcClient } from './sync-rpc.js';

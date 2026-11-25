@@ -19,8 +19,6 @@ const envConfig = readEnvFile([
   'CONTAINER_PIDS_LIMIT',
   'NANOCLAW_EGRESS_LOCKDOWN',
   'NANOCLAW_EGRESS_NETWORK',
-  'NANOCLAW_REMOTE_MAILBOX_GROUPS',
-  'NANOCLAW_MAILBOX_PORT',
   'NANOCLAW_OPENSHELL_GROUPS',
   'NANOCLAW_OPENSHELL_FORWARD_PORT',
   'NANOCLAW_OPENSHELL_CREDENTIALS',
@@ -117,24 +115,10 @@ export const EGRESS_LOCKDOWN = (process.env.NANOCLAW_EGRESS_LOCKDOWN || envConfi
 export const EGRESS_NETWORK =
   process.env.NANOCLAW_EGRESS_NETWORK || envConfig.NANOCLAW_EGRESS_NETWORK || 'nanoclaw-egress';
 
-// Remote agent mailbox (prototype) — opt-in per agent group. Groups listed here
-// get no session-directory mount; their runner reaches its mailbox over HTTP
-// through the host service (src/mailbox/remote). Empty = feature fully off.
-export const REMOTE_MAILBOX_GROUPS: readonly string[] = (
-  process.env.NANOCLAW_REMOTE_MAILBOX_GROUPS ||
-  envConfig.NANOCLAW_REMOTE_MAILBOX_GROUPS ||
-  ''
-)
-  .split(',')
-  .map((id) => id.trim())
-  .filter(Boolean);
-const mailboxPort = Number.parseInt(process.env.NANOCLAW_MAILBOX_PORT || envConfig.NANOCLAW_MAILBOX_PORT || '', 10);
-export const MAILBOX_PORT =
-  Number.isInteger(mailboxPort) && mailboxPort > 0 && mailboxPort < 65536 ? mailboxPort : 18770;
-
 // OpenShell MicroVM sessions (prototype) — opt-in per agent group. Groups
 // listed here run as OpenShell sandboxes; everything else stays on Docker.
-// Every listed group must also be in NANOCLAW_REMOTE_MAILBOX_GROUPS. Empty =
+// Every listed group must also be in NANOCLAW_REMOTE_MAILBOX_GROUPS (the
+// /add-remote-mailbox skill). Empty =
 // feature fully off (the Docker driver is used as-is, unwrapped).
 export const OPENSHELL_GROUPS: readonly string[] = (
   process.env.NANOCLAW_OPENSHELL_GROUPS ||

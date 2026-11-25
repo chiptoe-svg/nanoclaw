@@ -10,7 +10,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 
-import { AnchoredDir } from '../../anchored-dir.js';
+import { AnchoredDir, copyRegularFile } from '../../anchored-dir.js';
 import { isSafeAttachmentName } from '../../attachment-safety.js';
 import { sessionMailboxDir } from '../sqlite/paths.js';
 import { isSafeMailboxId, isSafeOutboxFilename } from './ids.js';
@@ -43,6 +43,43 @@ function safeSegments(rel: unknown): string[] {
   return segments;
 }
 
+function errnoOf(err: unknown): string | undefined {
+  return (err as NodeJS.ErrnoException | null)?.code;
+}
+
+/**
+ * Set `name`'s mtime to now, creating it if absent. Refuses a symlink or a
+ * non-regular leaf (`openReadFd` opens with O_NOFOLLOW and checks the type).
+ * The host owns the file, so a read-only descriptor may set its times.
+ */
+function touchEntry(dir: AnchoredDir, name: string): void {
+  let fd: number;
+  try {
+    fd = dir.openReadFd(name);
+  } catch (err) {
+    if (errnoOf(err) !== 'ENOENT') throw err;
+    dir.appendFile(name, '');
+    fd = dir.openReadFd(name);
+  }
+  try {
+    const now = new Date();
+    fs.futimesSync(fd, now, now);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/** Move regular file `from` to `to` inside `dir`. Whatever held `to` (a planted symlink too) is removed, never followed. */
+function moveEntry(dir: AnchoredDir, from: string, to: string): void {
+  try {
+    dir.unlink(to);
+  } catch (err) {
+    if (errnoOf(err) !== 'ENOENT') throw err;
+  }
+  copyRegularFile(dir, from, dir, to);
+  dir.unlink(from);
+}
+
 function openRejecting(root: string, segments: string[], create: boolean): AnchoredDir | null {
   try {
     return AnchoredDir.open(root, segments, create);
@@ -55,7 +92,7 @@ export function touchHeartbeat(key: RemoteSessionKey): void {
   const dir = openRejecting(sessionRoot(key), [], false);
   if (!dir) throw new PathRejectedError('session directory missing');
   try {
-    dir.touch('.heartbeat');
+    touchEntry(dir, '.heartbeat');
   } catch (err) {
     throw new PathRejectedError(`refused: ${err instanceof Error ? err.message : String(err)}`);
   } finally {
@@ -178,7 +215,7 @@ function isReplay(
   final: boolean,
 ): boolean {
   if (sameBytes(dir, tmp, offset, data)) {
-    if (final) dir.rename(tmp, filename);
+    if (final) moveEntry(dir, tmp, filename);
     return true;
   }
   // The final chunk was applied and renamed before the reply was lost.
@@ -236,7 +273,7 @@ export function outboxWrite(
     } catch (err) {
       throw new PathRejectedError(`refused: ${err instanceof Error ? err.message : String(err)}`);
     }
-    if (final) dir.rename(tmp, filename);
+    if (final) moveEntry(dir, tmp, filename);
     return null;
   } finally {
     dir.close();

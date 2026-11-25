@@ -5,7 +5,8 @@
  * mailbox here: POST /v1/mailbox executes one `MailboxOperations` call (or one
  * of the file ops) against that session's inbound.db/outbound.db. Loopback
  * only; bearer token per session; one request per session at a time.
- * Wire format: see the remote-mailbox spec; not wired into host startup yet.
+ * Wire format: see the remote-mailbox spec. Started by the remote-mailbox
+ * session driver (driver.ts) before adoption.
  */
 import http from 'http';
 import type { AddressInfo } from 'net';
@@ -15,9 +16,10 @@ import { inboxList, inboxRead, outboxWrite, PathRejectedError, touchHeartbeat } 
 import type { RemoteSessionKey } from './ids.js';
 import { createSessionOperations, SessionUnavailableError } from './operations.js';
 import type { SessionOperations } from './operations.js';
+import { DEFAULT_MAILBOX_PORT } from './config.js';
 import { verifyMailboxToken } from './tokens.js';
 
-export const DEFAULT_MAILBOX_PORT = 18770;
+export { DEFAULT_MAILBOX_PORT };
 export const MAX_REQUEST_BODY_BYTES = 8 * 1024 * 1024;
 const LOOPBACK = '127.0.0.1';
 
