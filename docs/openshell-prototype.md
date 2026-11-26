@@ -309,6 +309,24 @@ never fall back to OneCLI. A malformed value stops the host at startup. The
 change applies at the next spawn. A sandbox that is already running keeps the
 OneCLI env it started with until it exits.
 
+### Live rehearsal (2026-11-25, real Telegram cards, dummy credentials)
+
+A throwaway group on OpenShell credentials ran a script-only task (no model
+call) that curled sites outside its policy. Results:
+
+- Detection to card in ~2 s. Approve (example.com, example.net): rule live in
+  all three of the group's VMs ~9 s after the tap, saved for the group, retry
+  200. Reject (example.org): not saved, retry still blocked, no repeat card,
+  agent told.
+- Bug found and fixed: requests with `displayFields` need a registered card
+  renderer; Telegram has none, so every OpenShell card failed closed. Cards are
+  plain text now.
+- Bug found and fixed: the documented Claude profile bound the token to the
+  agent SDK's `claude` binary, but the runner starts Claude Code
+  (`/pnpm/claude` → versioned `claude.exe`). With the corrected profile a dummy
+  token reached Anthropic (`ALLOWED POST /v1/messages`, then `401 OAuth access
+  token is invalid`), so the real token should work.
+
 ### Switch `lab` to OpenShell credentials (about 5 minutes)
 
 Prerequisite: lab already runs in a VM (`NANOCLAW_OPENSHELL_GROUPS` lists it,
