@@ -311,58 +311,41 @@ OneCLI env it started with until it exits.
 
 ### Switch `lab` to OpenShell credentials (about 5 minutes)
 
-You need a Claude subscription setup-token (`claude setup-token` on a
-logged-in machine prints `sk-ant-oat…`). Run these from `~/nanoclaw-v2`:
+Prerequisite: lab already runs in a VM (`NANOCLAW_OPENSHELL_GROUPS` lists it,
+`NANOCLAW_REMOTE_MAILBOX_INNER_DRIVER=openshell`). You need a Claude
+subscription setup-token (`claude setup-token` on a logged-in machine prints
+`sk-ant-oat…`).
 
-1. Find the lab group id: `grep NANOCLAW_OPENSHELL_GROUPS .env`.
-2. Save the profile as `/tmp/nanoclaw-claude.yaml`:
-
-   ```yaml
-   id: nanoclaw-claude
-   display_name: NanoClaw Claude (subscription)
-   description: Claude setup-token for the agent SDK's claude binary
-   category: agent
-   credentials:
-     - name: token
-       description: Claude setup-token (sk-ant-oat...)
-       env_vars: [CLAUDE_CODE_OAUTH_TOKEN]
-       required: true
-       auth_style: bearer
-       header_name: Authorization
-   endpoints:
-     - host: api.anthropic.com
-       port: 443
-       protocol: rest
-       access: read-write
-       enforcement: enforce
-   binaries:
-     - /app/node_modules/@anthropic-ai/claude-agent-sdk-linux-arm64/claude
-   ```
-
-3. Import it, then create the provider. The token is read from your shell, so
-   it never appears on the command line or in history:
+1. **You, in a terminal on the Mac** (Screen Sharing, or SSH over Tailscale),
+   from `~/nanoclaw-v2`:
 
    ```bash
-   openshell profile lint -f /tmp/nanoclaw-claude.yaml
-   openshell profile import -f /tmp/nanoclaw-claude.yaml
-   read -rs CLAUDE_CODE_OAUTH_TOKEN && export CLAUDE_CODE_OAUTH_TOKEN   # paste, Enter
-   openshell provider create --name lab-claude --type nanoclaw-claude --credential CLAUDE_CODE_OAUTH_TOKEN
-   unset CLAUDE_CODE_OAUTH_TOKEN
+   bash scripts/openshell-claude-provider.sh lab-claude
    ```
 
-4. Add `NANOCLAW_OPENSHELL_CREDENTIALS=<lab-id>:lab-claude` to `.env`.
-5. Restart the host with `bash setup/lib/restart.sh`. Then end the running lab
-   sandbox so the next message gets a fresh one:
-   `ncl groups restart --id <lab-id>`.
-6. Check it:
-   - Message lab and confirm it replies.
-   - `grep "OpenShell credential providers applied" logs/nanoclaw.log` should
-     show `providers: ["lab-claude"]`.
-   - In the sandbox,
-     `openshell sandbox exec -n <sandbox> --no-tty -- printenv CLAUDE_CODE_OAUTH_TOKEN`
-     should print an `openshell:resolve:env:` placeholder, not the token.
+   It imports the provider profile (`docs/openshell/nanoclaw-claude.yaml`),
+   asks for the token with input hidden, and creates the provider. The token
+   never reaches a command line, shell history or a coding agent. (Don't run it
+   through Claude Code's `!` prefix; that would put the token in the session.)
+2. **Then tell Claude Code to switch lab over.** It adds
+   `NANOCLAW_OPENSHELL_CREDENTIALS=<lab-id>:lab-claude` to `.env`, restarts the
+   host, runs `ncl groups restart --id <lab-id>`, and checks:
+   - lab replies to a message;
+   - `logs/nanoclaw.log` shows `OpenShell credential providers applied` with
+     `providers: ["lab-claude"]`;
+   - in the sandbox, `printenv CLAUDE_CODE_OAUTH_TOKEN` is an
+     `openshell:resolve:env:` placeholder, not the token;
+   - the first site lab is not allowed to reach produces an "Allow network
+     access?" card in Telegram.
 
-**Rollback:** remove the `.env` line, then restart. Delete the provider with
+The profile binds the token to the Claude Code binary the runner actually
+starts (`/pnpm/claude` resolves to
+`/pnpm/global/*/.pnpm/@anthropic-ai+claude-code@*/…/bin/claude.exe`; the glob
+survives upgrades). An earlier version bound the agent SDK's own `claude`
+under `/app/node_modules`, which the runner no longer uses, so OpenShell would
+have refused the real token's traffic (found in the 2026-11-25 rehearsal).
+
+**Rollback:** remove the `.env` line and restart. Delete the provider with
 `openshell provider delete lab-claude`.
 
 ### Known gaps

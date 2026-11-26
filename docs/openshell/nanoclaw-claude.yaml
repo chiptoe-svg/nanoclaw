@@ -1,0 +1,20 @@
+id: nanoclaw-claude
+display_name: NanoClaw Claude (subscription)
+description: Claude setup-token for the Claude Code binary the agent runner launches
+category: agent
+credentials:
+  - name: token
+    description: Claude setup-token (sk-ant-oat...)
+    env_vars: [CLAUDE_CODE_OAUTH_TOKEN]
+    required: true
+    auth_style: bearer
+    header_name: Authorization
+endpoints:
+  - host: api.anthropic.com
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+binaries:
+  # The runner starts /pnpm/claude, a shim for this versioned binary; the glob survives upgrades.
+  - /pnpm/global/*/.pnpm/@anthropic-ai+claude-code@*/node_modules/@anthropic-ai/claude-code/bin/claude.exe
