@@ -590,8 +590,41 @@ describe('translateSpec: admin-approved endpoints', () => {
   ])('refuses the spec for an entry that is not one exact DNS name and port: %s:%s', (host, port) => {
     expect(() =>
       translateSpec(openshellCredentialSpec(), opts({ approvedEndpoints: [{ host, port } as never] })),
-    ).toThrow(/not one exact DNS name and port/);
+    ).toThrow(/not a valid host and port/);
   });
+
+  it('merges the operator allow-list, wildcards included, as its own rule', () => {
+    const plan = translateSpec(
+      openshellCredentialSpec(),
+      opts({
+        operatorAllow: [
+          { host: '*.untappd.com', port: 443 },
+          { host: 'untappd.com', port: 443 },
+        ],
+      }),
+    );
+    expect(plan.policy.network_policies.nanoclaw_operator_allow).toEqual({
+      name: 'nanoclaw_operator_allow',
+      endpoints: [
+        { host: '*.untappd.com', ports: [443] },
+        { host: 'untappd.com', ports: [443] },
+      ],
+      binaries: [{ path: '/**' }],
+    });
+    expect(
+      translateSpec(realisticSpec(), opts({ operatorAllow: [{ host: '*.untappd.com', port: 443 }] })).policy
+        .network_policies.nanoclaw_operator_allow,
+    ).toBeUndefined();
+  });
+
+  it.each(['*.com', '*', '*.1.1.1.1', '*.printer.local'])(
+    'refuses a too-broad or internal operator wildcard: %s',
+    (host) => {
+      expect(() =>
+        translateSpec(openshellCredentialSpec(), opts({ operatorAllow: [{ host, port: 443 } as never] })),
+      ).toThrow(/not a valid host and port/);
+    },
+  );
 });
 
 describe('sandboxName', () => {

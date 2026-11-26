@@ -40,7 +40,13 @@
 import { createHash } from 'crypto';
 import path from 'path';
 
-import { APPROVED_RULE, isApprovableEndpoint, type ApprovedEndpoint } from './approved-endpoints.js';
+import {
+  APPROVED_RULE,
+  isAllowPatternEndpoint,
+  isApprovableEndpoint,
+  OPERATOR_ALLOW_RULE,
+  type ApprovedEndpoint,
+} from './approved-endpoints.js';
 import {
   labelsForKey,
   specInvalid,
@@ -146,6 +152,8 @@ export interface TranslateOptions {
   approvedEndpoints?: readonly ApprovedEndpoint[];
   /** Per-group VM size (NANOCLAW_OPENSHELL_SIZES); falls back to the spec's install-wide resources. */
   size?: VmSize;
+  /** The group's operator allow-list (may hold `*.` wildcards); merged like approvals. */
+  operatorAllow?: readonly ApprovedEndpoint[];
   /**
    * Drop the guest's file cache once the heartbeat has been quiet this long
    * (NANOCLAW_OPENSHELL_EVICT_IDLE_SECONDS). 0 or absent = never.
@@ -353,11 +361,14 @@ function credentialProviders(spec: SessionSpec): string[] {
 }
 
 /** One endpoint per host (see the `nanoclaw_host` note below), ports merged and sorted. */
-function approvedEndpointList(entries: readonly ApprovedEndpoint[]): NetworkEndpoint[] {
+function approvedEndpointList(
+  entries: readonly ApprovedEndpoint[],
+  valid: (entry: unknown) => boolean = isApprovableEndpoint,
+): NetworkEndpoint[] {
   const byHost = new Map<string, Set<number>>();
   for (const entry of entries) {
-    if (!isApprovableEndpoint(entry)) {
-      throw specInvalid(`approved endpoint ${JSON.stringify(entry)} is not one exact DNS name and port`);
+    if (!valid(entry)) {
+      throw specInvalid(`approved endpoint ${JSON.stringify(entry)} is not a valid host and port`);
     }
     if (!byHost.has(entry.host)) byHost.set(entry.host, new Set());
     byHost.get(entry.host)!.add(entry.port);
@@ -622,6 +633,14 @@ export function translateSpec(spec: SessionSpec, opts: TranslateOptions): Sandbo
     // Any binary, as the live approval adds it: the card approves a
     // destination for the agent, and every binary in the sandbox is the agent's.
     policy.network_policies[APPROVED_RULE] = { name: APPROVED_RULE, endpoints: approved, binaries: [{ path: '/**' }] };
+  }
+  const allowed = forward ? [] : approvedEndpointList(opts.operatorAllow ?? [], isAllowPatternEndpoint);
+  if (allowed.length > 0) {
+    policy.network_policies[OPERATOR_ALLOW_RULE] = {
+      name: OPERATOR_ALLOW_RULE,
+      endpoints: allowed,
+      binaries: [{ path: '/**' }],
+    };
   }
 
   const size: VmSize = opts.size ?? {

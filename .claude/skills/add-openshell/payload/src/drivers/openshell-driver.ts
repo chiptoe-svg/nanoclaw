@@ -31,7 +31,7 @@ import { stringify } from 'yaml';
 import { log } from '../log.js';
 
 import { validateRuntimeName } from './cli.js';
-import { readApprovedEndpoints, type ApprovedEndpoint } from './openshell/approved-endpoints.js';
+import { readApprovedEndpoints, readOperatorAllow, type ApprovedEndpoint } from './openshell/approved-endpoints.js';
 import { OPENSHELL_EVICT_IDLE_SECONDS, OPENSHELL_SIZES } from './openshell/config.js';
 import { startForwarder, type Forwarder } from './openshell/forwarder.js';
 import {
@@ -301,6 +301,7 @@ export class OpenShellSessionDriver implements SessionDriver {
       probe: this.#probe,
       imageEnv: await imageEnvOf(spec.containers[0]?.image),
       approvedEndpoints: this.#approvedEndpoints(spec.key.agentGroupId),
+      operatorAllow: this.#operatorAllow(spec.key.agentGroupId),
       size: OPENSHELL_SIZES.get(spec.key.agentGroupId),
       evictIdleSeconds: OPENSHELL_EVICT_IDLE_SECONDS,
     });
@@ -331,6 +332,23 @@ export class OpenShellSessionDriver implements SessionDriver {
   }
 
   /** The group's admin-approved endpoints. A bad store merges nothing (egress stays closed) and says why. */
+  /** The group's operator allow-list. A bad file merges nothing (egress stays closed) and says why. */
+  #operatorAllow(agentGroupId: string): ApprovedEndpoint[] {
+    try {
+      const { endpoints, rejected } = readOperatorAllow(this.#policy.dataRoot, agentGroupId);
+      if (rejected.length > 0) {
+        log.warn('OpenShell: operator allow-list entries skipped (not host[:port] or a too-broad wildcard)', {
+          agentGroupId,
+          rejected,
+        });
+      }
+      return endpoints;
+    } catch (err) {
+      log.error('OpenShell: operator allow-list unreadable; merging none', { agentGroupId, err });
+      return [];
+    }
+  }
+
   #approvedEndpoints(agentGroupId: string): ApprovedEndpoint[] {
     try {
       const { endpoints, rejected } = readApprovedEndpoints(this.#policy.dataRoot, agentGroupId);

@@ -114,3 +114,67 @@ export function addApprovedEndpoint(
   fs.renameSync(tmp, file);
   return true;
 }
+
+/**
+ * Operator allow-list: `<dataRoot>/openshell-policy/<agentGroupId>.allow.json`,
+ * written by an operator (never by an approval card), merged into every new
+ * sandbox's policy as its own rule. Unlike card approvals it may hold a
+ * wildcard subdomain (`*.untappd.com`), for sites whose CDN hostnames shift.
+ *
+ *   { "allow": ["*.untappd.com", "untappd.com", "query1.finance.yahoo.com:443"] }
+ *
+ * Port defaults to 443. A wildcard must cover at least a two-label name
+ * (`*.example.com`, never `*.com`); IP literals and internal names are refused.
+ */
+export const OPERATOR_ALLOW_RULE = 'nanoclaw_operator_allow';
+
+const WILDCARD = /^\*\.(.+)$/;
+
+/** An exact approvable host, or `*.` + an approvable host of at least two labels. */
+export function isAllowPatternHost(host: string): boolean {
+  const wild = WILDCARD.exec(host);
+  if (!wild) return isApprovableHost(host);
+  return isApprovableHost(wild[1]) && wild[1].split('.').length >= 2;
+}
+
+export function isAllowPatternEndpoint(entry: unknown): entry is ApprovedEndpoint {
+  if (!entry || typeof entry !== 'object') return false;
+  const { host, port } = entry as Record<string, unknown>;
+  return typeof host === 'string' && isAllowPatternHost(host) && isApprovablePort(port);
+}
+
+/** `host[:port]` → endpoint (port 443 when omitted), or null when it isn't a valid allow entry. */
+export function parseAllowEntry(entry: unknown): ApprovedEndpoint | null {
+  if (typeof entry !== 'string') return null;
+  const match = /^([^:\s]+)(?::(\d{1,5}))?$/.exec(entry.trim().toLowerCase());
+  if (!match) return null;
+  const endpoint = { host: match[1], port: match[2] === undefined ? 443 : Number(match[2]) };
+  return isAllowPatternEndpoint(endpoint) ? endpoint : null;
+}
+
+export function operatorAllowPath(dataRoot: string, agentGroupId: string): string {
+  return approvedEndpointsPath(dataRoot, agentGroupId).replace(/\.json$/, '.allow.json');
+}
+
+/** Missing file → empty. An unreadable or malformed file throws. */
+export function readOperatorAllow(dataRoot: string, agentGroupId: string): ApprovedEndpointsRead {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(operatorAllowPath(dataRoot, agentGroupId), 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { endpoints: [], rejected: [] };
+    throw err;
+  }
+  const doc = JSON.parse(raw) as { allow?: unknown };
+  if (!doc || typeof doc !== 'object' || !Array.isArray(doc.allow)) {
+    throw new Error(`${operatorAllowPath(dataRoot, agentGroupId)}: expected { "allow": ["host[:port]", ...] }`);
+  }
+  const endpoints: ApprovedEndpoint[] = [];
+  const rejected: unknown[] = [];
+  for (const entry of doc.allow) {
+    const endpoint = parseAllowEntry(entry);
+    if (!endpoint) rejected.push(entry);
+    else if (!endpoints.some((e) => e.host === endpoint.host && e.port === endpoint.port)) endpoints.push(endpoint);
+  }
+  return { endpoints, rejected };
+}

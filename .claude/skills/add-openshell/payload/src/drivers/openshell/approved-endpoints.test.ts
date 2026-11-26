@@ -7,7 +7,10 @@ import {
   addApprovedEndpoint,
   approvedEndpointsPath,
   isApprovableHost,
+  operatorAllowPath,
+  parseAllowEntry,
   readApprovedEndpoints,
+  readOperatorAllow,
 } from './approved-endpoints.js';
 
 let root: string;
@@ -76,5 +79,30 @@ describe('approved endpoint store', () => {
       '[::1]',
     ])
       expect(isApprovableHost(bad)).toBe(false);
+  });
+});
+
+describe('operator allow-list', () => {
+  it('parses host[:port], defaulting to 443, and allows two-label wildcards only', () => {
+    expect(parseAllowEntry('*.untappd.com')).toEqual({ host: '*.untappd.com', port: 443 });
+    expect(parseAllowEntry('Query1.Finance.Yahoo.com:443')).toEqual({ host: 'query1.finance.yahoo.com', port: 443 });
+    expect(parseAllowEntry('example.com:8443')).toEqual({ host: 'example.com', port: 8443 });
+    for (const bad of ['*.com', '*', '1.1.1.1', '*.printer.local', 'host.openshell.internal', 'a b', 'x.com:0', 42]) {
+      expect(parseAllowEntry(bad)).toBeNull();
+    }
+  });
+
+  it('reads the .allow.json beside the approvals, skipping bad entries and duplicates', () => {
+    expect(readOperatorAllow(root, 'ag-1')).toEqual({ endpoints: [], rejected: [] });
+    fs.mkdirSync(path.dirname(operatorAllowPath(root, 'ag-1')), { recursive: true });
+    fs.writeFileSync(
+      operatorAllowPath(root, 'ag-1'),
+      JSON.stringify({ allow: ['*.untappd.com', '*.untappd.com:443', '*.com'] }),
+    );
+    expect(operatorAllowPath(root, 'ag-1')).toMatch(/openshell-policy\/ag-1\.allow\.json$/);
+    expect(readOperatorAllow(root, 'ag-1')).toEqual({
+      endpoints: [{ host: '*.untappd.com', port: 443 }],
+      rejected: ['*.com'],
+    });
   });
 });

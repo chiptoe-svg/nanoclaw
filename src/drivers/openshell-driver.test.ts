@@ -251,7 +251,7 @@ describe('start', () => {
         'export HOME=/home/node && export HTTPS_PROXY="$NANOCLAW_RESTORE_HTTPS_PROXY" && unset NANOCLAW_RESTORE_HTTPS_PROXY && ' +
         'export NODE_EXTRA_CA_CERTS="$NANOCLAW_RESTORE_NODE_EXTRA_CA_CERTS" && unset NANOCLAW_RESTORE_NODE_EXTRA_CA_CERTS && ' +
         "export AGENT_BROWSER_ARGS='--no-sandbox,--no-zygote' && " +
-        `${cacheEvictor(OPENSHELL_EVICT_IDLE_SECONDS)} && ` +
+        (OPENSHELL_EVICT_IDLE_SECONDS > 0 ? `${cacheEvictor(OPENSHELL_EVICT_IDLE_SECONDS)} && ` : '') +
         "mkdir -p '/workspace' && ln -sfnT '/opt/nanoclaw-mounts/0-agent' '/workspace/agent' && exec bun run /app/src/index.ts",
     ]);
 

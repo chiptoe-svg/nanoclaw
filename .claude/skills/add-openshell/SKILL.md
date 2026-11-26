@@ -151,6 +151,13 @@ group with `--memory`/`--cpu`, but the vm driver ignores those flags today
 (ai-openshell/openshell#5744); the host logs a warning once when a size is
 requested.
 
+Allowed sites: for a group whose credentials come from OpenShell, every new VM
+also allows the hosts in `data/openshell-policy/<agentGroupId>.allow.json`
+(`{ "allow": ["*.example.com", "example.com", "api.example.org:443"] }`, port
+443 by default). An operator writes this file; approval cards never do. A
+wildcard covers subdomains only (list the bare domain too) and must name at
+least two labels (`*.example.com`, never `*.com`).
+
 Memory: while its agent is idle (no heartbeat for
 `NANOCLAW_OPENSHELL_EVICT_IDLE_SECONDS`, default 120; `0` turns it off), a VM
 drops its file cache once, so the pages go back to macOS through the VM's
