@@ -22,6 +22,7 @@ vi.mock('../log.js', () => ({
 
 import { FakeOpenShell } from './openshell/fake-openshell.js';
 import type { Forwarder } from './openshell/forwarder.js';
+import type { IdleProbe } from './openshell/idle-stop.js';
 import { mapSandboxPhase, OpenShellSessionDriver } from './openshell-driver.js';
 import { OPENSHELL_EVICT_IDLE_SECONDS } from './openshell/config.js';
 import { cacheEvictor, sandboxName } from './openshell/translate.js';
@@ -102,13 +103,15 @@ function spec(sessionId = 's1', agentGroupId = 'g1'): SessionSpec {
   };
 }
 
-function makeDriver(pollMs = 5): void {
+function makeDriver(pollMs = 5, idle: { idleStopMs?: number; idleProbe?: IdleProbe } = {}): void {
   raw = new OpenShellSessionDriver({
     ...policy,
     cli,
     forwardPort: 18755,
     stagingRoot: path.join(policy.dataRoot, 'openshell-staging'),
     pollMs,
+    idleStopMs: idle.idleStopMs ?? 0,
+    idleProbe: idle.idleProbe,
     startForwarder: async (listenPort, targetPort): Promise<Forwarder> => {
       forwarders.push([listenPort, targetPort]);
       return { listenPort, targetPort, close: async () => {} };
@@ -359,6 +362,22 @@ describe('status, stop and terminals', () => {
     await wait(60);
     expect(terminal).toHaveBeenCalledOnce();
     expect(terminal).toHaveBeenCalledWith({ kind: 'started-then-died', retryable: false, exitCode: 3 });
+  });
+
+  it('stops a running VM through the idle probe once it has been idle long enough', async () => {
+    const stopped: string[] = [];
+    makeDriver(5, {
+      idleStopMs: 1_000,
+      idleProbe: {
+        read: async () => ({ heartbeatMtimeMs: 0, startedAtMs: Date.now() - 60_000, bashTimeoutMs: null, claims: 0 }),
+        stop: (key) => stopped.push(key.sessionId),
+      },
+    });
+    const handle = await driver.prepare(spec());
+    await handle.start();
+    handle.onTerminal(() => {});
+    await wait(40);
+    expect(stopped).toEqual([spec().key.sessionId]);
   });
 
   it('stop is full teardown and reports no terminal', async () => {

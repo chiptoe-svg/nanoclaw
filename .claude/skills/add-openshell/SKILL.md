@@ -93,6 +93,8 @@ payload/src/drivers/openshell/config.ts -> src/drivers/openshell/config.ts
 payload/src/drivers/openshell/config.test.ts -> src/drivers/openshell/config.test.ts
 payload/src/drivers/openshell/fake-openshell.ts -> src/drivers/openshell/fake-openshell.ts
 payload/src/drivers/openshell/forwarder.ts -> src/drivers/openshell/forwarder.ts
+payload/src/drivers/openshell/idle-stop.ts -> src/drivers/openshell/idle-stop.ts
+payload/src/drivers/openshell/idle-stop.test.ts -> src/drivers/openshell/idle-stop.test.ts
 payload/src/drivers/openshell/register.ts -> src/drivers/openshell/register.ts
 payload/src/drivers/openshell/register.test.ts -> src/drivers/openshell/register.test.ts
 payload/src/drivers/openshell/translate.ts -> src/drivers/openshell/translate.ts
@@ -162,6 +164,11 @@ Memory: while its agent is idle (no heartbeat for
 `NANOCLAW_OPENSHELL_EVICT_IDLE_SECONDS`, default 120; `0` turns it off), a VM
 drops its file cache once, so the pages go back to macOS through the VM's
 free-page-reporting balloon instead of staying held until the VM ends.
+A VM also stops once its agent has been idle for
+`NANOCLAW_OPENSHELL_IDLE_STOP_SECONDS` (default 300; `0` turns it off), well
+before core's install-wide 30-minute ceiling: an idle VM still holds most of its
+memory. It is never stopped while a message is being processed or a long Bash
+command is declared, and the next message starts a fresh VM.
 
 ### 6. Restart
 

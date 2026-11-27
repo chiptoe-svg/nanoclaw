@@ -20,6 +20,9 @@
  * - NANOCLAW_OPENSHELL_EVICT_IDLE_SECONDS: drop a VM's file cache once its
  *   agent has been idle this long, so the memory returns to the host. Default
  *   120; 0 = off.
+ * - NANOCLAW_OPENSHELL_IDLE_STOP_SECONDS: stop a VM once its agent has been
+ *   idle this long (core's install-wide ceiling still applies above it).
+ *   Default 300; 0 = off.
  */
 import { readEnvFile } from '../../env.js';
 
@@ -28,6 +31,7 @@ const KEYS = [
   'NANOCLAW_OPENSHELL_FORWARD_PORT',
   'NANOCLAW_OPENSHELL_SIZES',
   'NANOCLAW_OPENSHELL_EVICT_IDLE_SECONDS',
+  'NANOCLAW_OPENSHELL_IDLE_STOP_SECONDS',
 ] as const;
 
 export const DEFAULT_FORWARD_PORT = 18755;
@@ -78,4 +82,16 @@ export function parseEvictIdleSeconds(raw: string): number {
 
 export const OPENSHELL_EVICT_IDLE_SECONDS = parseEvictIdleSeconds(
   read('NANOCLAW_OPENSHELL_EVICT_IDLE_SECONDS', process.env),
+);
+
+export const DEFAULT_IDLE_STOP_SECONDS = 300;
+
+export function parseIdleStopSeconds(raw: string): number {
+  if (raw.trim() === '') return DEFAULT_IDLE_STOP_SECONDS;
+  const seconds = Number(raw);
+  return Number.isInteger(seconds) && seconds >= 0 ? seconds : DEFAULT_IDLE_STOP_SECONDS;
+}
+
+export const OPENSHELL_IDLE_STOP_SECONDS = parseIdleStopSeconds(
+  read('NANOCLAW_OPENSHELL_IDLE_STOP_SECONDS', process.env),
 );

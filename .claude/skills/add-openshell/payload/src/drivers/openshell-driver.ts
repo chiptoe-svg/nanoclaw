@@ -32,7 +32,8 @@ import { log } from '../log.js';
 
 import { validateRuntimeName } from './cli.js';
 import { readApprovedEndpoints, readOperatorAllow, type ApprovedEndpoint } from './openshell/approved-endpoints.js';
-import { OPENSHELL_EVICT_IDLE_SECONDS, OPENSHELL_SIZES } from './openshell/config.js';
+import { OPENSHELL_EVICT_IDLE_SECONDS, OPENSHELL_IDLE_STOP_SECONDS, OPENSHELL_SIZES } from './openshell/config.js';
+import { stopIdleSessions, type IdleProbe } from './openshell/idle-stop.js';
 import { startForwarder, type Forwarder } from './openshell/forwarder.js';
 import {
   RUNNER_LOG,
@@ -73,6 +74,7 @@ export interface OpenShellCli {
 const DEFAULT_TIMEOUT_MS = 30_000;
 const CREATE_TIMEOUT_MS = 240_000;
 const LINT_TIMEOUT_MS = 15_000;
+const IDLE_CHECK_MS = 30_000;
 /** Old CLIs reject the unknown subcommand at argument parsing. */
 const LINT_MISSING = /unrecognized subcommand|unknown (sub)?command|invalid subcommand|unexpected argument 'lint'/i;
 const FORWARD_ANNOTATION = 'nanoclaw-forward';
@@ -127,6 +129,10 @@ export interface OpenShellDriverOptions extends MountPolicy {
   probe?: MountProbe;
   /** Test seam. */
   startForwarder?: (listenPort: number, targetPort: number) => Promise<Forwarder>;
+  /** Stop a VM idle this long (NANOCLAW_OPENSHELL_IDLE_STOP_SECONDS); 0 = off. */
+  idleStopMs?: number;
+  /** Test seam. */
+  idleProbe?: IdleProbe;
 }
 
 interface SandboxDoc {
@@ -208,6 +214,7 @@ export class OpenShellSessionDriver implements SessionDriver {
   readonly #watches = new Map<string, InstallWatch>();
   #forwarder: Promise<Forwarder> | null = null;
   #lintUnsupported = false;
+  #lastIdleCheck = 0;
 
   constructor(private readonly opts: OpenShellDriverOptions) {
     this.#cli = opts.cli ?? realOpenShellCli();
@@ -470,6 +477,7 @@ export class OpenShellSessionDriver implements SessionDriver {
       watch.primed = true;
     }
     watch.seen = next;
+    this.#checkIdle(next.values());
     this.#schedulePoll(installSlug, watch, this.#pollMs);
   }
 
@@ -533,6 +541,16 @@ export class OpenShellSessionDriver implements SessionDriver {
 
   async getSandbox(name: string): Promise<SandboxDoc | null> {
     return this.#get(name);
+  }
+
+  /** At most every IDLE_CHECK_MS, rides the watch poll; never blocks it. */
+  #checkIdle(observed: Iterable<{ key: SessionKey; phase: SessionPhase }>): void {
+    const idleMs = this.opts.idleStopMs ?? OPENSHELL_IDLE_STOP_SECONDS * 1000;
+    const now = Date.now();
+    if (idleMs <= 0 || now - this.#lastIdleCheck < IDLE_CHECK_MS) return;
+    this.#lastIdleCheck = now;
+    const live = [...observed].filter((o) => o.phase === 'running').map((o) => o.key);
+    if (live.length > 0) void stopIdleSessions(live, idleMs, this.opts.idleProbe);
   }
 
   async #get(name: string): Promise<SandboxDoc | null> {

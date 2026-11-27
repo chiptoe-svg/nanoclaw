@@ -457,6 +457,13 @@ of the Claude binary (126 ms vs 5 ms).
   The VM prelude now runs an idle evictor: once the heartbeat is quiet for
   `NANOCLAW_OPENSHELL_EVICT_IDLE_SECONDS` (default 120), it drops the cache once
   per idle period. Verified live (946 → 72 MB at the first check after idle).
+- Overnight soak (2026-11-25/26): the lab agent's hourly task spawns a VM that
+  core's 30-minute ceiling then keeps idle for ~28 minutes at 1.35–1.4 GB host
+  RSS (guest used ~210 MB, cache ~483 MB). With the evictor on, the guest cache
+  fell to ~240 MB (the rest is mapped binaries), but the host got memory back
+  only for one of two VMs (1.4 → 1.1 GB footprint, lazily). The bigger lever is
+  lifetime: `NANOCLAW_OPENSHELL_IDLE_STOP_SECONDS` (default 300) stops an idle
+  VM through core's `killContainer` with the ceiling's own signals.
 - The second "shared memory" region (~512 MB) is reserved address space with
   0 resident — not a cost. Guest RAM is 8 × 128 MB blocks.
 
