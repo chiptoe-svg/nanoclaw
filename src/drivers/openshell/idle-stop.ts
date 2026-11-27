@@ -7,7 +7,9 @@
  * same signals the ceiling uses: the heartbeat (or the spawn time when the
  * heartbeat predates this incarnation), a Bash command declared as running
  * longer, and messages still being processed. A VM with a claimed message is
- * left to core's stuck checks; this only ever stops an idle one.
+ * left to core's stuck checks, and one with a due message not yet claimed is
+ * left alone so the stop never races the message's pickup (nanocoai/nanoclaw
+ * #4558); this only ever stops an idle one.
  */
 import fs from 'fs';
 
@@ -21,11 +23,13 @@ export interface IdleInputs {
   startedAtMs: number | undefined;
   bashTimeoutMs: number | null;
   claims: number;
+  /** Due inbound messages not yet claimed. */
+  due: number;
 }
 
 /** Pure: should this running VM be stopped as idle? */
 export function decideIdleStop(idleMs: number, inputs: IdleInputs): boolean {
-  if (idleMs <= 0 || inputs.claims > 0 || inputs.startedAtMs === undefined) return false;
+  if (idleMs <= 0 || inputs.claims > 0 || inputs.due > 0 || inputs.startedAtMs === undefined) return false;
   // A heartbeat older than this incarnation's start is the previous one's file.
   const last = Math.max(inputs.heartbeatMtimeMs, inputs.startedAtMs);
   return inputs.now - last > Math.max(idleMs, inputs.bashTimeoutMs ?? 0);
@@ -57,6 +61,7 @@ export const coreIdleProbe: IdleProbe = {
       const state = mailbox.getContainerState();
       return {
         claims: mailbox.getProcessingClaims().length,
+        due: mailbox.countDueMessages(),
         bashTimeoutMs: state?.currentTool === 'Bash' ? state.toolDeclaredTimeoutMs : null,
       };
     });

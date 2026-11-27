@@ -369,7 +369,13 @@ describe('status, stop and terminals', () => {
     makeDriver(5, {
       idleStopMs: 1_000,
       idleProbe: {
-        read: async () => ({ heartbeatMtimeMs: 0, startedAtMs: Date.now() - 60_000, bashTimeoutMs: null, claims: 0 }),
+        read: async () => ({
+          heartbeatMtimeMs: 0,
+          startedAtMs: Date.now() - 60_000,
+          bashTimeoutMs: null,
+          claims: 0,
+          due: 0,
+        }),
         stop: (key) => stopped.push(key.sessionId),
       },
     });

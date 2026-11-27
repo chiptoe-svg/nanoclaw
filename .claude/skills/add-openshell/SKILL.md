@@ -167,7 +167,7 @@ free-page-reporting balloon instead of staying held until the VM ends.
 A VM also stops once its agent has been idle for
 `NANOCLAW_OPENSHELL_IDLE_STOP_SECONDS` (default 300; `0` turns it off), well
 before core's install-wide 30-minute ceiling: an idle VM still holds most of its
-memory. It is never stopped while a message is being processed or a long Bash
+memory. It is never stopped while a message is waiting or being processed, or a long Bash
 command is declared, and the next message starts a fresh VM.
 
 ### 6. Restart

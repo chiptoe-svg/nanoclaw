@@ -9,6 +9,7 @@ const base: IdleInputs = {
   startedAtMs: NOW - 10 * 60_000,
   bashTimeoutMs: null,
   claims: 0,
+  due: 0,
 };
 const IDLE = 5 * 60_000;
 
@@ -25,8 +26,9 @@ describe('decideIdleStop', () => {
     expect(decideIdleStop(IDLE, { ...base, heartbeatMtimeMs: 0, startedAtMs: NOW - 6 * 60_000 })).toBe(true);
   });
 
-  it('never stops a VM with a claimed message, and honours a longer declared Bash timeout', () => {
+  it('never stops a VM with a claimed or waiting message, and honours a longer declared Bash timeout', () => {
     expect(decideIdleStop(IDLE, { ...base, claims: 1 })).toBe(false);
+    expect(decideIdleStop(IDLE, { ...base, due: 1 })).toBe(false);
     expect(decideIdleStop(IDLE, { ...base, bashTimeoutMs: 20 * 60_000 })).toBe(false);
     expect(decideIdleStop(IDLE, { ...base, bashTimeoutMs: 2 * 60_000 })).toBe(true);
   });
